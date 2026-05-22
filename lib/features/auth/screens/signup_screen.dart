@@ -87,9 +87,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     // Title
                     Text(
                       'Create Account',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                      style:
+                          Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
@@ -216,7 +217,8 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                           ),
                           onPressed: () {
                             setState(() {
-                              _obscureConfirmPassword = !_obscureConfirmPassword;
+                              _obscureConfirmPassword =
+                                  !_obscureConfirmPassword;
                             });
                           },
                         ),
@@ -258,8 +260,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     const SizedBox(height: 32),
 
                     // Sign in link
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         const Text('Already have an account?'),
                         TextButton(

@@ -243,19 +243,23 @@ These features are deferred to future versions:
 
 ---
 
-## 13. Open Questions & Decisions Needed
+## 13. Product Decisions (Locked For v1)
 
-- [ ] **Recording Storage:** Store videos in-app or rely on device camera roll?
-- [ ] **Team Size Limit:** Cap at 10 users for v1?
-- [ ] **Subscription Model:** Free tier limits? Paid features?
-- [ ] **Branding:** App name and visual identity
-- [ ] **Voice Recognition:** Use device speech recognition or third-party API?
+- [x] **Recording Storage:** Use device camera roll as the source of truth for raw recordings in v1.
+- [x] **Team Size Limit:** Cap each team at 10 members for v1.
+- [x] **Subscription Model:** Single paid plan for teams after a 14-day full-feature trial; no permanent free tier in v1.
+- [x] **Branding:** Product name is **Team Teleprompter** for v1; visual identity stays simple and utilitarian until post-MVP.
+- [x] **Voice Recognition:** Use on-device speech recognition APIs (via Flutter speech_to_text) for v1.
+
+### Notes
+- These decisions are frozen for MVP scope control and can be revisited in Phase 2 planning.
+- Any change to this section requires a matching update to roadmap priorities and acceptance criteria.
 
 ---
 
 ## Next Steps
 
-1. Review and approve this spec
-2. Set up Firebase project
-3. Initialize Flutter project structure
-4. Begin Phase 1 implementation (Core Prompter + Sync)
+1. Complete Week 4 prompter controls and scroll UX tuning
+2. Validate Week 3 and Week 4 flows with device-level integration testing
+3. Implement Week 5 settings persistence and high-contrast customization
+4. Begin Week 6 voice-follow algorithm tuning using on-device speech APIs

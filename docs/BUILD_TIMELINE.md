@@ -10,6 +10,13 @@ Complete week-by-week plan to build Team Teleprompter MVP.
 **Team:** Solo developer with Flutter experience  
 **Target:** Production-ready MVP for team use
 
+### Current Status Snapshot (May 21, 2026)
+- ✅ Week 1 complete (project setup, Firebase wiring, base architecture)
+- ✅ Week 2 complete (auth flow, user/team management)
+- 🟨 Week 3 in progress (script management modules implemented, integration/testing ongoing)
+- ✅ Static analysis currently clean after regenerating model code (`build_runner`)
+- 🚧 Not production-ready yet: major roadmap items from Weeks 4-10 remain (prompter engine, voice follow, remote control, recording, launch polish)
+
 ### Weekly Time Allocation
 - **Development:** 20-25 hours/week
 - **Testing:** 5-8 hours/week

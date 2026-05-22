@@ -65,7 +65,7 @@ lib/
 - ✅ `docs/BUILD_TIMELINE.md` - 10-week development plan
 
 ### 6. Quality Checks
-- ✅ `flutter analyze` - No errors or warnings
+- ✅ `flutter analyze` - Clean after running code generation (`build_runner`)
 - ✅ All dependencies resolved
 - ✅ Firebase initialization code in place
 - ✅ Project compiles successfully
@@ -84,20 +84,18 @@ lib/
 - Shows play icon and ready message
 - Uses Riverpod for state management
 
-## 📋 Next Steps (Week 2)
+## 📋 Next Steps (Week 3)
 
-Follow `docs/BUILD_TIMELINE.md` Week 2 tasks:
+Follow `docs/BUILD_TIMELINE.md` Week 3 tasks:
 
-1. **Authentication Implementation**
-   - Create auth repository
-   - Build login/signup screens
-   - Implement Firebase Auth integration
-   - Add Google/Apple Sign-In
+1. **Script Management Core**
+   - Complete script CRUD validation flow
+   - Finalize script editor UX and persistence
+   - Validate Hive caching behavior end-to-end
 
-2. **User & Team Models**
-   - Define data models with Freezed
-   - Create Firestore repositories
-   - Set up team creation flow
+2. **Sync Foundations**
+   - Implement and validate real-time update listeners
+   - Add conflict handling and edge-case tests
 
 3. **Reference Code**
    - See `docs/IMPLEMENTATION_GUIDE.md` for working code samples
@@ -175,11 +173,11 @@ flutter run -d chrome
 
 ## ✨ Ready to Build!
 
-All foundation work is complete. Follow the Week 2 tasks in `docs/BUILD_TIMELINE.md` to start implementing authentication and core features.
+Foundation and authentication are complete. Follow Week 3 tasks in `docs/BUILD_TIMELINE.md` to complete script management and move toward production features.
 
 **Timeline:** 8-12 weeks to MVP  
-**Current Week:** Week 2 ready to start  
-**Phase:** Foundation Complete ✅
+**Current Week:** Week 3 in progress  
+**Phase:** Core feature implementation
 
 ---
 

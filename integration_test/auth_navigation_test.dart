@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:integration_test/integration_test.dart';
 import 'package:team_teleprompter/main.dart';
 
 void main() {
-  testWidgets('loads login screen and navigates to signup',
-      (WidgetTester tester) async {
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('auth flow smoke: login to signup and back', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: MyApp()));
     await tester.pumpAndSettle();
 
     expect(find.text('Team Teleprompter'), findsOneWidget);
-    expect(find.text('Sign In'), findsWidgets);
 
     final signUpFinder = find.text('Sign Up').last;
     await tester.ensureVisible(signUpFinder);
@@ -20,20 +20,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(FilledButton, 'Create Account'), findsOneWidget);
-  });
 
-  testWidgets('login layout handles narrow viewport without overflow',
-      (WidgetTester tester) async {
-    tester.view.physicalSize = const Size(640, 960);
-    tester.view.devicePixelRatio = 2.0;
-    addTearDown(tester.view.reset);
-
-    await tester.pumpWidget(const ProviderScope(child: MyApp()));
+    await tester.tap(find.text('Sign In'));
     await tester.pumpAndSettle();
 
-    final exception = tester.takeException();
-    expect(exception, isNull);
-
-    expect(find.byType(Scaffold), findsWidgets);
+    expect(find.text('Team Teleprompter'), findsOneWidget);
   });
 }

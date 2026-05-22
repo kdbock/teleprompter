@@ -134,9 +134,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     // Title
                     Text(
                       'Team Teleprompter',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                      style:
+                          Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
@@ -278,8 +279,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     const SizedBox(height: 32),
 
                     // Sign up link
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         const Text("Don't have an account?"),
                         TextButton(
