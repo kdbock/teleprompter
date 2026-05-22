@@ -1,0 +1,85 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+ios/Flutter/ephemeral/
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+/android/local.properties
+
+# Firebase config files (already added, but good practice to comment)
+# Keep these files if you want to share config across team
+# Remove these lines to keep config files private
+# android/app/google-services.json
+# ios/Runner/GoogleService-Info.plist
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Secrets and keys
+*.key
+*.pem
+secrets.json
+
+# Local development
+*.local
+
+# Hive database files (cached data)
+*.hive
+*.lock
+
+# Generated files (can be regenerated)
+*.g.dart
+*.freezed.dart
+*.config.dart
+
+# Testing
+test/.test_coverage.dart
+coverage/
+
+# Web
+web/firebase-config.js
+
+# macOS
+.DS_Store
