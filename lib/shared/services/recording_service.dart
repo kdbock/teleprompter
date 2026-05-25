@@ -156,4 +156,26 @@ class RecordingService {
     existing.addAll(patch);
     await box.put(id, existing);
   }
+
+  Future<Map<String, dynamic>> createDerivedTake({
+    required String sourceRecordingId,
+    required Map<String, dynamic> exportSettings,
+  }) async {
+    final box = await _getRecordingsBox();
+    final sourceData = box.get(sourceRecordingId);
+    if (sourceData == null) {
+      throw Exception('Source recording not found');
+    }
+    final source = Map<String, dynamic>.from(sourceData);
+    final id = DateTime.now().millisecondsSinceEpoch.toString();
+    final derived = Map<String, dynamic>.from(source)
+      ..['id'] = id
+      ..['createdAt'] = DateTime.now().toIso8601String()
+      ..['sourceRecordingId'] = sourceRecordingId
+      ..['isDerived'] = true
+      ..['exportProfile'] = exportSettings
+      ..['title'] = '${(source['title'] as String? ?? 'Recording')} (Styled)';
+    await box.put(id, derived);
+    return derived;
+  }
 }

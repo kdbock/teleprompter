@@ -11,7 +11,7 @@ class SyncService {
   final HiveService _hiveService;
   final Connectivity _connectivity;
 
-  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   Timer? _syncTimer;
   bool _isSyncing = false;
 
@@ -28,7 +28,7 @@ class SyncService {
     // Listen to connectivity changes
     _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
       (result) async {
-        final hasConnection = result != ConnectivityResult.none;
+        final hasConnection = !_isOffline(result);
         if (hasConnection && !_isSyncing) {
           await syncScripts();
         }
@@ -38,7 +38,7 @@ class SyncService {
     // Set up periodic sync
     _syncTimer = Timer.periodic(interval, (_) async {
       final result = await _connectivity.checkConnectivity();
-      final hasConnection = result != ConnectivityResult.none;
+      final hasConnection = !_isOffline(result);
       if (hasConnection && !_isSyncing) {
         await syncScripts();
       }
@@ -62,7 +62,7 @@ class SyncService {
     try {
       // Check connectivity
       final result = await _connectivity.checkConnectivity();
-      final hasConnection = result != ConnectivityResult.none;
+      final hasConnection = !_isOffline(result);
 
       if (!hasConnection) {
         return; // Skip sync if offline
@@ -105,7 +105,7 @@ class SyncService {
 
     // Try remote if connected
     final result = await _connectivity.checkConnectivity();
-    final hasConnection = result != ConnectivityResult.none;
+    final hasConnection = !_isOffline(result);
 
     if (hasConnection) {
       final remoteScript = await _scriptRepository.getScript(scriptId);
@@ -126,7 +126,7 @@ class SyncService {
 
     // Check connectivity
     final result = await _connectivity.checkConnectivity();
-    final hasConnection = result != ConnectivityResult.none;
+    final hasConnection = !_isOffline(result);
 
     if (!hasConnection) {
       return localScripts;
@@ -161,7 +161,12 @@ class SyncService {
   /// Check if online
   Future<bool> isOnline() async {
     final result = await _connectivity.checkConnectivity();
-    return result != ConnectivityResult.none;
+    return !_isOffline(result);
+  }
+
+  bool _isOffline(List<ConnectivityResult> results) {
+    return results.isEmpty ||
+        (results.length == 1 && results.first == ConnectivityResult.none);
   }
 
   /// Get last sync time

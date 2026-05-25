@@ -56,6 +56,8 @@ class _RecordWithPrompterScreenState
   double _scrollSpeed = 45; // pixels / second
   double _readLineY = 0.35; // relative vertical position
   final List<({String label, double offset})> _markers = [];
+  double? _loopStartOffset;
+  double? _loopEndOffset;
   static const List<({String label, double speed})> _speedPresets = [
     (label: 'Slow', speed: 30),
     (label: 'Normal', speed: 45),
@@ -504,14 +506,38 @@ class _RecordWithPrompterScreenState
       }
       final max = _scrollController.position.maxScrollExtent;
       final next = (_scrollController.offset + (_scrollSpeed / 60)).clamp(0.0, max);
-      _scrollController.jumpTo(next);
-      _saveScrollOffset(next);
+      final loopStart = _loopStartOffset;
+      final loopEnd = _loopEndOffset;
+      if (loopStart != null && loopEnd != null && loopEnd > loopStart && next >= loopEnd) {
+        _scrollController.jumpTo(loopStart.clamp(0.0, max));
+        _saveScrollOffset(loopStart);
+      } else {
+        _scrollController.jumpTo(next);
+        _saveScrollOffset(next);
+      }
       if (next >= max) {
         setState(() => _isScrolling = false);
         break;
       }
       await Future<void>.delayed(const Duration(milliseconds: 16));
     }
+  }
+
+  void _setLoopStartAtCurrent() {
+    if (!_scrollController.hasClients) return;
+    setState(() => _loopStartOffset = _scrollController.offset);
+  }
+
+  void _setLoopEndAtCurrent() {
+    if (!_scrollController.hasClients) return;
+    setState(() => _loopEndOffset = _scrollController.offset);
+  }
+
+  void _clearLoop() {
+    setState(() {
+      _loopStartOffset = null;
+      _loopEndOffset = null;
+    });
   }
 
   void _addMarker() {
@@ -908,6 +934,35 @@ class _RecordWithPrompterScreenState
                         style: const TextStyle(color: Colors.white70, fontSize: 12),
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: _setLoopStartAtCurrent,
+                          child: const Text('Set Loop Start'),
+                        ),
+                        OutlinedButton(
+                          onPressed: _setLoopEndAtCurrent,
+                          child: const Text('Set Loop End'),
+                        ),
+                        OutlinedButton(
+                          onPressed: (_loopStartOffset != null || _loopEndOffset != null)
+                              ? _clearLoop
+                              : null,
+                          child: const Text('Clear Loop'),
+                        ),
+                      ],
+                    ),
+                    if (_loopStartOffset != null && _loopEndOffset != null)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Loop section: ${_loopStartOffset!.round()} → ${_loopEndOffset!.round()}',
+                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ),
                     const SizedBox(height: 8),
                   ],
                   Wrap(

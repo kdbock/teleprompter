@@ -19,44 +19,44 @@ A creator can:
 - [x] Adjustable read-line position
 - [x] Mirror mode
 - [x] Orientation lock + accidental-touch lock
-- [ ] Auto-resume from last script position
+- [x] Auto-resume from last script position
 
 ### Recording Controls (Near-Term)
-- [ ] Front/rear camera toggle
-- [ ] Resolution selector (1080p/4K where available)
-- [ ] FPS selector (30/60 where available)
-- [ ] Hands-free controls (volume keys/Bluetooth clicker)
-- [ ] Audio level indicator while recording
-- [ ] Device light/noise preflight check
+- [x] Front/rear camera toggle
+- [x] Resolution selector (1080p/4K where available)
+- [x] FPS selector (30/60 where available)
+- [x] Hands-free controls (volume keys/Bluetooth clicker support via hardware keys)
+- [x] Audio level indicator while recording (ambient level meter pre-record)
+- [x] Device light/noise preflight check (mic/storage readiness + ambient sampling)
 
 ### Script Navigation (Near-Term)
-- [ ] Script section markers
-- [ ] Jump-to-marker controls
-- [ ] Section loop for retakes
-- [ ] Speed presets (slow/normal/presentation)
+- [x] Script section markers
+- [x] Jump-to-marker controls
+- [x] Section loop for retakes
+- [x] Speed presets (slow/normal/presentation)
 
 ### Session Output (Near-Term)
 - [x] Save takes list (local)
 - [x] Rename/tag takes
 - [x] Mark best take
 - [x] Instant playback
-- [ ] Quick trim (head/tail)
+- [x] Quick trim (head/tail)
 
 ### Review Screen v2 (Planned Next)
-- [ ] Lower third overlay:
+- [x] Lower third overlay:
   - text content
   - basic color controls (text/background)
   - position preset (bottom-left/bottom-center/bottom-right)
-- [ ] Captions overlay:
+- [x] Captions overlay:
   - mode: one-word-at-a-time
   - mode: line/phrase
   - style: color/font size/background opacity
-- [ ] Image overlay:
+- [x] Image overlay:
   - import image asset
   - position, scale, opacity
-- [ ] Green screen:
-  - evaluate feasibility in current Flutter/iOS stack
-  - choose path: live preview compositing vs post-processing compositing
+- [ ] Green screen (Deferred):
+  - explicitly deferred for current cycle
+  - reconsider after export/reliability hardening
 
 ### Advanced / Phase 2
 - [ ] Remote control from second device
@@ -71,21 +71,21 @@ A creator can:
 - [x] Merge start controls into one launch action
 - [x] Add tap-to-pause on overlay
 - [x] Add focus mask with adjustable center line
-- [ ] Persist in-session settings (font, speed, line position)
+- [x] Persist in-session settings (font, speed, line position)
 - [x] Save and display recording file metadata locally
 - [x] Recover interrupted recording finalization after app reload/crash
 
 ### Phase 2: Quality-of-Life Controls
 - [x] Add mirror mode
 - [x] Add orientation + touch lock toggles
-- [ ] Add script marker/jump support
-- [ ] Add speed presets
+- [x] Add script marker/jump support
+- [x] Add speed presets
 
 ### Phase 3: Review + Retake Loop
 - [x] Build recordings list screen
 - [x] Add playback + scrub
 - [x] Add rename/tag/best-take actions
-- [ ] Add quick trim
+- [x] Add quick trim
 
 ### Phase 4: Advanced Add-ons
 - [ ] Add remote controller mode

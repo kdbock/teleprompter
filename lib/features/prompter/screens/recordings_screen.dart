@@ -2,10 +2,13 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/constants/export_constants.dart';
 import '../../scripts/providers/script_providers.dart';
 import '../../../shared/providers/transcription_providers.dart';
+import '../../../shared/services/overlay_export_service.dart';
 import '../../../shared/services/recording_service.dart';
 
 class RecordingsScreen extends StatefulWidget {
@@ -181,6 +184,9 @@ class RecordingPlayerScreen extends ConsumerStatefulWidget {
 class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
   VideoPlayerController? _controller;
   final RecordingService _recordingService = RecordingService();
+  final OverlayExportService _overlayExportService = OverlayExportService(
+    backend: ExportConstants.exportBackend,
+  );
   bool _showLowerThird = false;
   final TextEditingController _lowerThirdController =
       TextEditingController(text: 'Your Name  •  Title');
@@ -196,8 +202,14 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
   Color _captionTextColor = Colors.white;
   double _captionBgOpacity = 0.45;
   bool _isGeneratingCaptions = false;
+  String? _lastExportMode;
+  String? _overlayImagePath;
+  Offset _overlayImageOffset = const Offset(24, 24);
+  double _overlayImageScale = 1.0;
+  double _overlayImageOpacity = 0.8;
   Duration? _trimStart;
   Duration? _trimEnd;
+  bool _isExportingStyledTake = false;
 
   @override
   void initState() {
@@ -221,6 +233,16 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
       _controller = controller;
       _trimStart = Duration(milliseconds: safeStartMs);
       _trimEnd = Duration(milliseconds: safeEndMs);
+      _overlayImagePath = widget.recording['overlayImagePath'] as String?;
+      _overlayImageScale =
+          (widget.recording['overlayImageScale'] as num?)?.toDouble() ?? 1.0;
+      _overlayImageOpacity =
+          (widget.recording['overlayImageOpacity'] as num?)?.toDouble() ?? 0.8;
+      final ox = (widget.recording['overlayImageX'] as num?)?.toDouble();
+      final oy = (widget.recording['overlayImageY'] as num?)?.toDouble();
+      if (ox != null && oy != null) {
+        _overlayImageOffset = Offset(ox, oy);
+      }
     });
     if (safeStartMs > 0) {
       await controller.seekTo(Duration(milliseconds: safeStartMs));
@@ -268,6 +290,107 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Trim saved for this take')),
     );
+  }
+
+  Future<void> _pickOverlayImage() async {
+    final picker = ImagePicker();
+    final image = await picker.pickImage(source: ImageSource.gallery);
+    if (image == null) return;
+    setState(() => _overlayImagePath = image.path);
+    await _saveOverlayImageSettings();
+  }
+
+  Future<void> _saveOverlayImageSettings() async {
+    final id = widget.recording['id'] as String?;
+    if (id == null) return;
+    await _recordingService.updateRecording(id, {
+      'overlayImagePath': _overlayImagePath,
+      'overlayImageX': _overlayImageOffset.dx,
+      'overlayImageY': _overlayImageOffset.dy,
+      'overlayImageScale': _overlayImageScale,
+      'overlayImageOpacity': _overlayImageOpacity,
+    });
+  }
+
+  Future<void> _exportStyledTake() async {
+    final sourceId = widget.recording['id'] as String?;
+    final controller = _controller;
+    if (sourceId == null || controller == null) return;
+    setState(() => _isExportingStyledTake = true);
+    final exportSettings = <String, dynamic>{
+      'trimStartMs': _trimStart?.inMilliseconds ?? 0,
+      'trimEndMs': _trimEnd?.inMilliseconds ?? controller.value.duration.inMilliseconds,
+      'lowerThird': {
+        'enabled': _showLowerThird,
+        'text': _lowerThirdController.text.trim(),
+        'position': _lowerThirdPosition,
+        'textColor': _lowerThirdTextColor.toARGB32(),
+        'backgroundColor': _lowerThirdBackgroundColor.toARGB32(),
+      },
+      'captions': {
+        'enabled': _showCaptions,
+        'wordByWord': _wordByWordCaptions,
+        'text': _captionsController.text.trim(),
+        'fontSize': _captionFontSize,
+        'textColor': _captionTextColor.toARGB32(),
+        'bgOpacity': _captionBgOpacity,
+      },
+      'imageOverlay': {
+        'path': _overlayImagePath,
+        'x': _overlayImageOffset.dx,
+        'y': _overlayImageOffset.dy,
+        'scale': _overlayImageScale,
+        'opacity': _overlayImageOpacity,
+      },
+      'exportedAt': DateTime.now().toIso8601String(),
+    };
+    try {
+      final renderPlan = _overlayExportService.buildRenderPlan(exportSettings);
+      exportSettings['renderPlan'] = renderPlan;
+      final render = await _overlayExportService.exportStyledVideo(
+        inputPath: widget.recording['path'] as String,
+        exportProfile: exportSettings,
+      );
+      exportSettings['renderMode'] = render.renderMode;
+      exportSettings['renderOutputPath'] = render.outputPath;
+      setState(() => _lastExportMode = render.renderMode);
+      final derived = await _recordingService.createDerivedTake(
+        sourceRecordingId: sourceId,
+        exportSettings: exportSettings,
+      );
+      await _recordingService.updateRecording(derived['id'] as String, {
+        'path': render.outputPath,
+        'savedToGallery': false,
+        'galleryError': 'Derived export not saved to gallery yet',
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Styled take exported (${render.renderMode}) as a derived version',
+          ),
+        ),
+      );
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => RecordingPlayerScreen(
+            recording: {
+              ...derived,
+              'path': render.outputPath,
+            },
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isExportingStyledTake = false);
+      }
+    }
   }
 
   String _currentCaptionText(VideoPlayerController controller) {
@@ -680,6 +803,30 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
                                 },
                               ),
                             ),
+                          if (_overlayImagePath != null)
+                            Positioned(
+                              left: _overlayImageOffset.dx,
+                              top: _overlayImageOffset.dy,
+                              child: GestureDetector(
+                                onPanUpdate: (details) {
+                                  setState(() {
+                                    _overlayImageOffset += details.delta;
+                                  });
+                                },
+                                onPanEnd: (_) => _saveOverlayImageSettings(),
+                                child: Opacity(
+                                  opacity: _overlayImageOpacity.clamp(0.1, 1.0),
+                                  child: Transform.scale(
+                                    scale: _overlayImageScale.clamp(0.3, 3.0),
+                                    child: Image.file(
+                                      File(_overlayImagePath!),
+                                      width: 120,
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -698,8 +845,56 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
                           icon: const Icon(Icons.closed_caption_outlined),
                           label: const Text('Captions'),
                         ),
+                        const SizedBox(width: 10),
+                        OutlinedButton.icon(
+                          onPressed: _pickOverlayImage,
+                          icon: const Icon(Icons.image_outlined),
+                          label: const Text('Image'),
+                        ),
                       ],
                     ),
+                    if (_overlayImagePath != null) ...[
+                      const SizedBox(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                const Text('Image Scale'),
+                                Expanded(
+                                  child: Slider(
+                                    value: _overlayImageScale,
+                                    min: 0.3,
+                                    max: 3.0,
+                                    onChanged: (v) {
+                                      setState(() => _overlayImageScale = v);
+                                    },
+                                    onChangeEnd: (_) => _saveOverlayImageSettings(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                const Text('Image Opacity'),
+                                Expanded(
+                                  child: Slider(
+                                    value: _overlayImageOpacity,
+                                    min: 0.1,
+                                    max: 1.0,
+                                    onChanged: (v) {
+                                      setState(() => _overlayImageOpacity = v);
+                                    },
+                                    onChangeEnd: (_) => _saveOverlayImageSettings(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     if (_trimStart != null && _trimEnd != null) ...[
                       Padding(
@@ -750,6 +945,19 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
                       ),
                       const SizedBox(height: 8),
                     ],
+                    FilledButton.icon(
+                      onPressed: _isExportingStyledTake ? null : _exportStyledTake,
+                      icon: const Icon(Icons.ios_share_outlined),
+                      label: Text(_isExportingStyledTake ? 'Exporting...' : 'Export Styled Take'),
+                    ),
+                    if (_lastExportMode != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Last export mode: $_lastExportMode',
+                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
                     FilledButton.icon(
                       onPressed: () {
                         if (controller.value.isPlaying) {

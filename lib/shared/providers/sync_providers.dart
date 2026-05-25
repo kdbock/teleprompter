@@ -31,7 +31,7 @@ final syncServiceProvider = Provider<SyncService>((ref) {
 });
 
 /// Provider for connectivity status
-final connectivityProvider = StreamProvider<ConnectivityResult>((ref) {
+final connectivityProvider = StreamProvider<List<ConnectivityResult>>((ref) {
   return Connectivity().onConnectivityChanged;
 });
 

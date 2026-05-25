@@ -29,16 +29,22 @@ Ship a reliable single-user teleprompter recorder that runs on phone and stores 
 - [x] Mirror mode
 - [x] Orientation lock
 - [x] Touch lock (distraction-free mode)
-- [ ] Script markers / jump points
-- [ ] Speed presets
+- [x] Script markers / jump points
+- [x] Speed presets
+- [x] Section loop for retakes
+- [x] Front/rear camera toggle
+- [x] Resolution selector (1080p/4K attempt)
+- [x] FPS selector (30/60 with fallback handling)
+- [x] Hands-free controls (hardware key toggle)
+- [x] Audio preflight + ambient level indicator
 
 ## Phase 4: Review Screen v2 (Next)
 
-- [ ] Lower third overlay (text + position + basic color controls)
-- [ ] Captions overlay (minimal modes: one-word-at-a-time and line mode)
-- [ ] Caption style controls (font size, color, background opacity)
-- [ ] Image overlay (import, position, scale, opacity)
-- [ ] Green screen option (deferred feasibility spike; likely post-processing workflow)
+- [x] Lower third overlay (text + position + basic color controls)
+- [x] Captions overlay (minimal modes: one-word-at-a-time and line mode)
+- [x] Caption style controls (font size, color, background opacity)
+- [x] Image overlay (import, position, scale, opacity)
+- [ ] Green screen option (deferred)
 
 ## Phase 5: Optional Advanced
 

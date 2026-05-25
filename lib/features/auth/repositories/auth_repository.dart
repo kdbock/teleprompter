@@ -8,7 +8,7 @@ import '../../../shared/models/app_user.dart';
 class AuthRepository {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
 
   /// Get current Firebase user
   User? get currentUser => _auth.currentUser;
@@ -128,20 +128,14 @@ class AuthRepository {
   /// Sign in with Google
   Future<AppUser> signInWithGoogle() async {
     try {
-      // Trigger Google Sign In flow
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-
-      if (googleUser == null) {
-        throw Exception('Google sign in cancelled');
-      }
+      await _googleSignIn.initialize();
+      final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
 
       // Obtain auth details
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
 
       // Create credential
       final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
