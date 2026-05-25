@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isTeamMemberById(teamId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/teams/$(teamId)) &&
+        get(/databases/$(database)/documents/teams/$(teamId)).data.members[request.auth.uid] != null;
+    }
+
+    match /users/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
+    match /teams/{teamId} {
+      // Use resource.data for query compatibility on team list reads.
+      allow read: if signedIn() && resource.data.members[request.auth.uid] != null;
+      allow create: if signedIn();
+      allow update, delete: if signedIn() && resource.data.members[request.auth.uid] != null;
+    }
+
+    match /scripts/{scriptId} {
+      allow read: if signedIn() && isTeamMemberById(resource.data.teamId);
+      allow create: if signedIn() && isTeamMemberById(request.resource.data.teamId);
+      allow update, delete: if signedIn() && isTeamMemberById(resource.data.teamId);
+    }
+  }
+}

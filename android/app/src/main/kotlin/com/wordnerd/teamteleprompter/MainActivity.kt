@@ -1,4 +1,4 @@
-package com.wordnerd.team_teleprompter
+package com.wordnerd.teamteleprompter
 
 import io.flutter.embedding.android.FlutterActivity
 

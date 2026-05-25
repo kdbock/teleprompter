@@ -21,10 +21,37 @@ class AuthRepository {
     final user = currentUser;
     if (user == null) return null;
 
-    final doc = await _firestore.collection('users').doc(user.uid).get();
-    if (!doc.exists) return null;
+    try {
+      final doc = await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .get()
+          .timeout(const Duration(seconds: 4));
 
-    return AppUser.fromFirestore(doc);
+      if (doc.exists) {
+        return AppUser.fromFirestore(doc);
+      }
+
+      // First-run resilience: if auth account exists but Firestore profile does not,
+      // create it so navigation can proceed immediately after signup/login.
+      return await _createUserDocument(
+        uid: user.uid,
+        email: user.email ?? '',
+        displayName: user.displayName ?? (user.email?.split('@')[0] ?? 'User'),
+        photoUrl: user.photoURL,
+      );
+    } catch (_) {
+      // Keep auth flow unblocked if Firestore is unavailable during first launch.
+      final now = DateTime.now();
+      return AppUser(
+        id: user.uid,
+        email: user.email ?? '',
+        displayName: user.displayName ?? (user.email?.split('@')[0] ?? 'User'),
+        photoUrl: user.photoURL,
+        createdAt: now,
+        lastLoginAt: now,
+      );
+    }
   }
 
   /// Sign in with email and password
@@ -42,10 +69,20 @@ class AuthRepository {
         throw Exception('Sign in failed');
       }
 
-      // Update last login
-      await _updateLastLogin(credential.user!.uid);
+      final user = credential.user!;
+      final now = DateTime.now();
 
-      return await _getOrCreateUser(credential.user!);
+      // Do not block login on Firestore availability during first-run setup.
+      _syncUserProfileInBackground(user);
+
+      return AppUser(
+        id: user.uid,
+        email: user.email ?? '',
+        displayName: user.displayName ?? (user.email?.split('@')[0] ?? 'User'),
+        photoUrl: user.photoURL,
+        createdAt: now,
+        lastLoginAt: now,
+      );
     } on FirebaseAuthException catch (e) {
       throw _handleAuthException(e);
     }
@@ -70,11 +107,18 @@ class AuthRepository {
       // Update display name
       await credential.user!.updateDisplayName(displayName);
 
-      // Create user document
-      return await _createUserDocument(
-        uid: credential.user!.uid,
+      final user = credential.user!;
+      final now = DateTime.now();
+
+      // Do not block signup completion on Firestore writes.
+      _syncUserProfileInBackground(user);
+
+      return AppUser(
+        id: user.uid,
         email: email,
         displayName: displayName,
+        createdAt: now,
+        lastLoginAt: now,
       );
     } on FirebaseAuthException catch (e) {
       throw _handleAuthException(e);
@@ -108,7 +152,17 @@ class AuthRepository {
         throw Exception('Google sign in failed');
       }
 
-      return await _getOrCreateUser(userCredential.user!);
+      final user = userCredential.user!;
+      final now = DateTime.now();
+      _syncUserProfileInBackground(user);
+      return AppUser(
+        id: user.uid,
+        email: user.email ?? '',
+        displayName: user.displayName ?? (user.email?.split('@')[0] ?? 'User'),
+        photoUrl: user.photoURL,
+        createdAt: now,
+        lastLoginAt: now,
+      );
     } on FirebaseAuthException catch (e) {
       throw _handleAuthException(e);
     }
@@ -138,7 +192,17 @@ class AuthRepository {
         throw Exception('Apple sign in failed');
       }
 
-      return await _getOrCreateUser(userCredential.user!);
+      final user = userCredential.user!;
+      final now = DateTime.now();
+      _syncUserProfileInBackground(user);
+      return AppUser(
+        id: user.uid,
+        email: user.email ?? '',
+        displayName: user.displayName ?? (user.email?.split('@')[0] ?? 'User'),
+        photoUrl: user.photoURL,
+        createdAt: now,
+        lastLoginAt: now,
+      );
     } on FirebaseAuthException catch (e) {
       throw _handleAuthException(e);
     }
@@ -218,9 +282,13 @@ class AuthRepository {
 
   /// Update last login timestamp
   Future<void> _updateLastLogin(String uid) async {
-    await _firestore.collection('users').doc(uid).update({
-      'lastLoginAt': FieldValue.serverTimestamp(),
-    });
+    try {
+      await _firestore.collection('users').doc(uid).update({
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {
+      // Ignore first-run race where the user profile document is not yet created.
+    }
   }
 
   /// Handle Firebase Auth exceptions
@@ -242,6 +310,14 @@ class AuthRepository {
         return 'Too many attempts. Please try again later.';
       default:
         return 'Authentication error: ${e.message}';
+    }
+  }
+
+  Future<void> _syncUserProfileInBackground(User user) async {
+    try {
+      await _getOrCreateUser(user);
+    } catch (_) {
+      // Keep auth UX responsive even if Firestore sync fails initially.
     }
   }
 }

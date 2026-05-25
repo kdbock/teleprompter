@@ -5,6 +5,7 @@ import 'firebase_options.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'shared/services/hive_service.dart';
+import 'shared/services/recording_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,6 +17,7 @@ void main() async {
   
   // Initialize Hive for offline storage
   await HiveService.init();
+  await RecordingService().recoverInterruptedRecordings();
   
   runApp(const ProviderScope(child: MyApp()));
 }

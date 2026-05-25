@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../auth/providers/auth_providers.dart';
-import '../../team/providers/team_providers.dart';
+import '../../scripts/providers/script_providers.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -10,11 +10,11 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentUserAsync = ref.watch(currentUserProvider);
-    final userTeamsAsync = ref.watch(userTeamsProvider);
+    final recentScriptsAsync = ref.watch(recentScriptsProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Team Teleprompter'),
+        title: const Text('Solo Teleprompter'),
         actions: [
           IconButton(
             icon: const Icon(Icons.person),
@@ -34,115 +34,114 @@ class HomeScreen extends ConsumerWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          return userTeamsAsync.when(
-            data: (teams) {
-              if (teams.isEmpty) {
-                // No teams, show create team prompt
-                return Center(
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        Icons.group_add,
-                        size: 80,
-                        color: Colors.grey.shade400,
-                      ),
-                      const SizedBox(height: 24),
                       Text(
-                        'Welcome, ${user.displayName}!',
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Create or join a team to get started',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.grey,
+                        'Quick Actions',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
                             ),
                       ),
-                      const SizedBox(height: 32),
-                      FilledButton.icon(
-                        onPressed: () {
-                          context.push('/create-team');
-                        },
-                        icon: const Icon(Icons.add),
-                        label: const Text('Create Team'),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () => context.push('/scripts/new'),
+                              icon: const Icon(Icons.add),
+                              label: const Text('New Script'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => context.push('/recordings'),
+                              icon: const Icon(Icons.videocam),
+                              label: const Text('Recordings'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: () => context.push('/scripts'),
+                        icon: const Icon(Icons.description),
+                        label: const Text('All Scripts'),
                       ),
                     ],
                   ),
-                );
-              }
-
-              // Show teams list
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: teams.length + 1, // +1 for quick actions card
-                itemBuilder: (context, index) {
-                  // First item: Quick actions
-                  if (index == 0) {
-                    return Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Quick Actions',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
+                ),
+              ),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Recent Scripts',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      recentScriptsAsync.when(
+                        data: (scripts) {
+                          if (scripts.isEmpty) {
+                            return const Text('No recent scripts yet');
+                          }
+                          return Column(
+                            children: scripts
+                                .map(
+                                  (script) => ListTile(
+                                    dense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: const Icon(Icons.article_outlined),
+                                    title: Text(
+                                      script.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    subtitle: Text(
+                                      script.isPublished ? 'Published' : 'Draft',
+                                    ),
+                                    trailing: Wrap(
+                                      spacing: 4,
+                                      children: [
+                                        IconButton(
+                                          tooltip: 'Continue Recording',
+                                          icon: const Icon(Icons.videocam, size: 20),
+                                          onPressed: () =>
+                                              context.push('/record/${script.id}'),
+                                        ),
+                                        const Icon(Icons.chevron_right),
+                                      ],
+                                    ),
+                                    onTap: () => context.push('/scripts/${script.id}'),
                                   ),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: FilledButton.icon(
-                                    onPressed: () {
-                                      context.push('/scripts');
-                                    },
-                                    icon: const Icon(Icons.description),
-                                    label: const Text('Scripts'),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () {
-                                      // TODO: Navigate to recordings
-                                    },
-                                    icon: const Icon(Icons.videocam),
-                                    label: const Text('Recordings'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                                )
+                                .toList(),
+                          );
+                        },
+                        loading: () => const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: LinearProgressIndicator(),
                         ),
+                        error: (_, __) => const Text('Could not load recent scripts'),
                       ),
-                    );
-                  }
-
-                  // Team cards
-                  final team = teams[index - 1];
-                  return Card(
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        child: Text(team.name[0].toUpperCase()),
-                      ),
-                      title: Text(team.name),
-                      subtitle: Text('${team.members.length} members'),
-                      trailing: const Icon(Icons.arrow_forward_ios),
-                      onTap: () {
-                        context.push('/team/${team.id}');
-                      },
-                    ),
-                  );
-                },
-              );
-            },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, stack) => Center(
-              child: Text('Error loading teams: $error'),
-            ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),

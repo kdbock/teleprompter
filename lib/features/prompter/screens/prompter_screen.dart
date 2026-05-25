@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../../scripts/providers/script_providers.dart';
 import '../services/scroll_engine.dart';
 import '../../../shared/models/script.dart';
@@ -22,6 +23,7 @@ class _PrompterScreenState extends ConsumerState<PrompterScreen>
   Script? _script;
   bool _isLoading = true;
   double _speed = 1.0;
+  double _fontSize = AppConstants.defaultFontSize;
 
   @override
   void initState() {
@@ -82,6 +84,7 @@ class _PrompterScreenState extends ConsumerState<PrompterScreen>
                               .textTheme
                               .headlineSmall
                               ?.copyWith(
+                                fontSize: _fontSize,
                                 height: 1.7,
                               ),
                           textAlign: TextAlign.center,
@@ -132,7 +135,7 @@ class _PrompterScreenState extends ConsumerState<PrompterScreen>
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface.withOpacity(0.95),
+        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.95),
         border: Border(
           top: BorderSide(color: Theme.of(context).dividerColor),
         ),
@@ -157,6 +160,49 @@ class _PrompterScreenState extends ConsumerState<PrompterScreen>
                 ),
               ),
               Text('${_speed.toStringAsFixed(1)}x'),
+            ],
+          ),
+          Row(
+            children: [
+              const Text('Font'),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: _fontSize <= AppConstants.minFontSize
+                    ? null
+                    : () {
+                        setState(() {
+                          _fontSize =
+                              (_fontSize - 2).clamp(AppConstants.minFontSize, AppConstants.maxFontSize);
+                        });
+                      },
+                icon: const Icon(Icons.remove_circle_outline),
+                tooltip: 'Decrease font',
+              ),
+              Expanded(
+                child: Slider(
+                  value: _fontSize,
+                  min: AppConstants.minFontSize,
+                  max: AppConstants.maxFontSize,
+                  divisions: ((AppConstants.maxFontSize - AppConstants.minFontSize) / 2).round(),
+                  label: '${_fontSize.round()}',
+                  onChanged: (value) {
+                    setState(() => _fontSize = value);
+                  },
+                ),
+              ),
+              Text('${_fontSize.round()}'),
+              IconButton(
+                onPressed: _fontSize >= AppConstants.maxFontSize
+                    ? null
+                    : () {
+                        setState(() {
+                          _fontSize =
+                              (_fontSize + 2).clamp(AppConstants.minFontSize, AppConstants.maxFontSize);
+                        });
+                      },
+                icon: const Icon(Icons.add_circle_outline),
+                tooltip: 'Increase font',
+              ),
             ],
           ),
           Row(

@@ -24,12 +24,17 @@ class TeamRepository {
       description: description,
     );
 
-    await teamRef.set(team.toFirestore());
+    await teamRef.set(team.toFirestore()).timeout(const Duration(seconds: 8));
 
-    // Update user's current team
-    await _firestore.collection('users').doc(ownerId).update({
-      'currentTeamId': team.id,
-    });
+    // Best-effort profile update: do not block team creation success.
+    try {
+      await _firestore.collection('users').doc(ownerId).set({
+        'currentTeamId': team.id,
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)).timeout(const Duration(seconds: 4));
+    } catch (_) {
+      // User profile pointer can be fixed later; team creation should still continue.
+    }
 
     return team;
   }

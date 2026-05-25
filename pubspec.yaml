@@ -11,10 +11,10 @@ dependencies:
     sdk: flutter
   
   # Firebase
-  firebase_core: ^2.24.2
-  firebase_auth: ^4.16.0
-  cloud_firestore: ^4.14.0
-  firebase_storage: ^11.6.0
+  firebase_core: ^4.9.0
+  firebase_auth: ^6.5.1
+  cloud_firestore: ^6.4.1
+  firebase_storage: ^13.4.1
   
   # State Management
   flutter_riverpod: ^2.4.9
@@ -38,18 +38,20 @@ dependencies:
   uuid: ^4.3.3
   connectivity_plus: ^5.0.2
   permission_handler: ^11.2.0
+  http: ^1.2.2
   
   # Auth
-  google_sign_in: ^6.2.1
-  sign_in_with_apple: ^5.0.0
+  google_sign_in: ^6.3.0
+  sign_in_with_apple: ^7.0.1
   
   # Voice Recognition
-  speech_to_text: ^6.5.1
+  speech_to_text: ^7.4.0
   
   # Camera/Recording
   camera: ^0.10.5+9
   video_player: ^2.8.2
   path_provider: ^2.1.2
+  gal: ^2.3.1
   
   # Routing
   go_router: ^13.0.0
@@ -86,4 +88,3 @@ flutter:
   #       - asset: assets/fonts/RobotoMono-Regular.ttf
   #       - asset: assets/fonts/RobotoMono-Bold.ttf
   #         weight: 700
-

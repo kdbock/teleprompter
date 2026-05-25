@@ -53,6 +53,12 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Team Teleprompter uses the camera for recording videos while prompting.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Team Teleprompter uses the microphone to capture audio in recordings.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Team Teleprompter uses speech recognition for voice-follow prompting controls.</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

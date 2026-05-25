@@ -1,18 +1,44 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:async';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/signup_screen.dart';
 import '../../features/team/screens/home_screen.dart';
 import '../../features/team/screens/create_team_screen.dart';
+import '../../features/team/screens/team_detail_screen.dart';
 import '../../features/scripts/screens/scripts_screen.dart';
 import '../../features/scripts/screens/script_editor_screen.dart';
 import '../../features/scripts/screens/script_detail_screen.dart';
 import '../../features/prompter/screens/prompter_screen.dart';
+import '../../features/prompter/screens/recordings_screen.dart';
+import '../../features/prompter/screens/record_with_prompter_screen.dart';
 
 /// Application routing configuration
 class AppRouter {
+  static const _authRoutes = {'/login', '/signup'};
+
   static final GoRouter router = GoRouter(
-    initialLocation: '/login',
+    initialLocation: '/',
+    refreshListenable: GoRouterRefreshStream(
+      FirebaseAuth.instance.authStateChanges(),
+    ),
+    redirect: (context, state) {
+      final isLoggedIn = FirebaseAuth.instance.currentUser != null;
+      final path = state.uri.path;
+      final onAuthRoute = _authRoutes.contains(path);
+
+      if (!isLoggedIn && !onAuthRoute) {
+        return '/login';
+      }
+      if (isLoggedIn && (onAuthRoute || path == '/')) {
+        return '/home';
+      }
+      if (!isLoggedIn && path == '/') {
+        return '/login';
+      }
+      return null;
+    },
     routes: [
       // Auth routes
       GoRoute(
@@ -38,6 +64,14 @@ class AppRouter {
         path: '/create-team',
         name: 'create-team',
         builder: (context, state) => const CreateTeamScreen(),
+      ),
+      GoRoute(
+        path: '/team/:id',
+        name: 'team-detail',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return TeamDetailScreen(teamId: id);
+        },
       ),
 
       // Script routes
@@ -77,11 +111,18 @@ class AppRouter {
           return PrompterScreen(scriptId: id);
         },
       ),
-
-      // Redirect root to login
       GoRoute(
-        path: '/',
-        redirect: (context, state) => '/login',
+        path: '/recordings',
+        name: 'recordings',
+        builder: (context, state) => const RecordingsScreen(),
+      ),
+      GoRoute(
+        path: '/record/:id',
+        name: 'record-with-prompter',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return RecordWithPrompterScreen(scriptId: id);
+        },
       ),
 
       // Team management routes will be added here
@@ -92,4 +133,18 @@ class AppRouter {
       ),
     ),
   );
+}
+
+class GoRouterRefreshStream extends ChangeNotifier {
+  GoRouterRefreshStream(Stream<dynamic> stream) {
+    _subscription = stream.asBroadcastStream().listen((_) => notifyListeners());
+  }
+
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
 }

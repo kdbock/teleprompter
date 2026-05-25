@@ -233,6 +233,23 @@ class _ScriptDetailScreenState extends ConsumerState<ScriptDetailScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
+            const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+              onPressed: () {
+                context.push('/record/${widget.scriptId}');
+              },
+              icon: const Icon(Icons.videocam),
+              label: const Text('Record With Overlay'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => context.push('/recordings'),
+              icon: const Icon(Icons.video_library_outlined),
+              label: const Text('View Recordings'),
+            ),
           ],
         ),
       ),

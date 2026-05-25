@@ -11,28 +11,34 @@ final scriptRepositoryProvider = Provider<ScriptRepository>((ref) {
 /// Provider for all scripts in current team
 final teamScriptsProvider = StreamProvider<List<Script>>((ref) {
   final currentTeam = ref.watch(currentTeamProvider).value;
-  if (currentTeam == null) return Stream.value([]);
+  final userTeams = ref.watch(userTeamsProvider).value ?? const [];
+  final team = currentTeam ?? (userTeams.isNotEmpty ? userTeams.first : null);
+  if (team == null) return Stream.value([]);
 
   final scriptRepository = ref.watch(scriptRepositoryProvider);
-  return scriptRepository.getScriptsForTeam(currentTeam.id);
+  return scriptRepository.getScriptsForTeam(team.id);
 });
 
 /// Provider for published scripts in current team
 final publishedScriptsProvider = StreamProvider<List<Script>>((ref) {
   final currentTeam = ref.watch(currentTeamProvider).value;
-  if (currentTeam == null) return Stream.value([]);
+  final userTeams = ref.watch(userTeamsProvider).value ?? const [];
+  final team = currentTeam ?? (userTeams.isNotEmpty ? userTeams.first : null);
+  if (team == null) return Stream.value([]);
 
   final scriptRepository = ref.watch(scriptRepositoryProvider);
-  return scriptRepository.getPublishedScripts(currentTeam.id);
+  return scriptRepository.getPublishedScripts(team.id);
 });
 
 /// Provider for draft scripts in current team
 final draftScriptsProvider = StreamProvider<List<Script>>((ref) {
   final currentTeam = ref.watch(currentTeamProvider).value;
-  if (currentTeam == null) return Stream.value([]);
+  final userTeams = ref.watch(userTeamsProvider).value ?? const [];
+  final team = currentTeam ?? (userTeams.isNotEmpty ? userTeams.first : null);
+  if (team == null) return Stream.value([]);
 
   final scriptRepository = ref.watch(scriptRepositoryProvider);
-  return scriptRepository.getDraftScripts(currentTeam.id);
+  return scriptRepository.getDraftScripts(team.id);
 });
 
 /// Provider for a specific script
@@ -53,32 +59,51 @@ final scriptSearchQueryProvider = StateProvider<String>((ref) => '');
 final filteredScriptsProvider = StreamProvider<List<Script>>((ref) {
   final query = ref.watch(scriptSearchQueryProvider);
   final currentTeam = ref.watch(currentTeamProvider).value;
-  
-  if (currentTeam == null) return Stream.value([]);
+  final userTeams = ref.watch(userTeamsProvider).value ?? const [];
+  final team = currentTeam ?? (userTeams.isNotEmpty ? userTeams.first : null);
+  if (team == null) return Stream.value([]);
   
   final scriptRepository = ref.watch(scriptRepositoryProvider);
   
   if (query.isEmpty) {
-    return scriptRepository.getScriptsForTeam(currentTeam.id);
+    return scriptRepository.getScriptsForTeam(team.id);
   }
   
-  return scriptRepository.searchScripts(currentTeam.id, query);
+  return scriptRepository.searchScripts(team.id, query);
 });
 
 /// Provider for script count
 final scriptCountProvider = FutureProvider<int>((ref) async {
   final currentTeam = ref.watch(currentTeamProvider).value;
-  if (currentTeam == null) return 0;
+  final userTeams = ref.watch(userTeamsProvider).value ?? const [];
+  final team = currentTeam ?? (userTeams.isNotEmpty ? userTeams.first : null);
+  if (team == null) return 0;
 
   final scriptRepository = ref.watch(scriptRepositoryProvider);
-  return await scriptRepository.getScriptCount(currentTeam.id);
+  return await scriptRepository.getScriptCount(team.id);
 });
 
 /// Provider for published script count
 final publishedScriptCountProvider = FutureProvider<int>((ref) async {
   final currentTeam = ref.watch(currentTeamProvider).value;
-  if (currentTeam == null) return 0;
+  final userTeams = ref.watch(userTeamsProvider).value ?? const [];
+  final team = currentTeam ?? (userTeams.isNotEmpty ? userTeams.first : null);
+  if (team == null) return 0;
 
   final scriptRepository = ref.watch(scriptRepositoryProvider);
-  return await scriptRepository.getPublishedScriptCount(currentTeam.id);
+  return await scriptRepository.getPublishedScriptCount(team.id);
+});
+
+/// Provider for recently created/edited scripts for home quick access
+final recentScriptsProvider = Provider<AsyncValue<List<Script>>>((ref) {
+  final scriptsAsync = ref.watch(teamScriptsProvider);
+  return scriptsAsync.whenData((scripts) {
+    final sorted = [...scripts]
+      ..sort((a, b) {
+        final aTime = a.lastEditedAt ?? a.createdAt;
+        final bTime = b.lastEditedAt ?? b.createdAt;
+        return bTime.compareTo(aTime);
+      });
+    return sorted.take(5).toList();
+  });
 });

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:async';
 import '../providers/script_providers.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../team/providers/team_providers.dart';
@@ -75,7 +76,15 @@ class _ScriptEditorScreenState extends ConsumerState<ScriptEditorScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final currentUser = ref.read(currentUserProvider).value;
-    final currentTeam = ref.read(currentTeamProvider).value;
+    Team? currentTeam = ref.read(currentTeamProvider).value;
+
+    // First-run fallback: currentTeamId may not be set yet on the user profile.
+    if (currentTeam == null) {
+      final teams = await ref.read(userTeamsProvider.future);
+      if (teams.isNotEmpty) {
+        currentTeam = teams.first;
+      }
+    }
 
     if (currentUser == null || currentTeam == null) {
       setState(() {
@@ -94,7 +103,8 @@ class _ScriptEditorScreenState extends ConsumerState<ScriptEditorScreen> {
 
       if (widget.scriptId == null) {
         // Create new script
-        await scriptRepository.createScript(
+        await scriptRepository
+            .createScript(
           teamId: currentTeam.id,
           title: _titleController.text.trim(),
           content: _contentController.text.trim(),
@@ -103,10 +113,12 @@ class _ScriptEditorScreenState extends ConsumerState<ScriptEditorScreen> {
           notes: _notesController.text.trim().isNotEmpty
               ? _notesController.text.trim()
               : null,
-        );
+        )
+            .timeout(const Duration(seconds: 10));
       } else {
         // Update existing script
-        await scriptRepository.updateScript(
+        await scriptRepository
+            .updateScript(
           scriptId: widget.scriptId!,
           userId: currentUser.id,
           title: _titleController.text.trim(),
@@ -115,7 +127,8 @@ class _ScriptEditorScreenState extends ConsumerState<ScriptEditorScreen> {
           notes: _notesController.text.trim().isNotEmpty
               ? _notesController.text.trim()
               : null,
-        );
+        )
+            .timeout(const Duration(seconds: 10));
       }
 
       if (mounted) {
@@ -124,6 +137,11 @@ class _ScriptEditorScreenState extends ConsumerState<ScriptEditorScreen> {
         );
         context.pop();
       }
+    } on TimeoutException {
+      setState(() {
+        _errorMessage =
+            'Save timed out. Please check your connection and try again.';
+      });
     } catch (e) {
       setState(() {
         _errorMessage = 'Error saving script: $e';

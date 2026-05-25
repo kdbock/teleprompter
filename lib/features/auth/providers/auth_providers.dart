@@ -22,7 +22,23 @@ final currentUserProvider = StreamProvider<AppUser?>((ref) async* {
     if (user == null) {
       yield null;
     } else {
-      yield await authRepository.getCurrentAppUser();
+      // Emit immediately from Firebase Auth so navigation is never blocked
+      // by Firestore profile hydration on first run.
+      final now = DateTime.now();
+      yield AppUser(
+        id: user.uid,
+        email: user.email ?? '',
+        displayName: user.displayName ?? (user.email?.split('@')[0] ?? 'User'),
+        photoUrl: user.photoURL,
+        createdAt: now,
+        lastLoginAt: now,
+      );
+
+      // Attempt to upgrade to canonical Firestore-backed profile.
+      final firestoreUser = await authRepository.getCurrentAppUser();
+      if (firestoreUser != null) {
+        yield firestoreUser;
+      }
     }
   }
 });

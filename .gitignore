@@ -83,3 +83,6 @@ web/firebase-config.js
 
 # macOS
 .DS_Store
+
+# FVM Version Cache
+.fvm/

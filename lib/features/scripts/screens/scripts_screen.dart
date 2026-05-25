@@ -41,7 +41,7 @@ class _ScriptsScreenState extends ConsumerState<ScriptsScreen>
 
     // Get user's role in current team
     final userRole = currentTeam?.getRoleForUser(currentUser?.id ?? '');
-    final canEdit = userRole?.canEdit ?? false;
+    final canEdit = userRole?.canEdit ?? true;
 
     return Scaffold(
       appBar: AppBar(
@@ -55,6 +55,12 @@ class _ScriptsScreenState extends ConsumerState<ScriptsScreen>
           ],
         ),
         actions: [
+          if (canEdit)
+            IconButton(
+              icon: const Icon(Icons.add),
+              tooltip: 'New Script',
+              onPressed: () => context.push('/scripts/new'),
+            ),
           IconButton(
             icon: const Icon(Icons.home),
             onPressed: () => context.go('/home'),
@@ -139,6 +145,12 @@ class _ScriptsScreenState extends ConsumerState<ScriptsScreen>
                         color: Colors.grey,
                       ),
                 ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => context.push('/scripts/new'),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create Script'),
+                ),
               ],
             ),
           );
@@ -222,33 +234,22 @@ class _ScriptsScreenState extends ConsumerState<ScriptsScreen>
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 12),
-              Row(
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
-                  const SizedBox(width: 4),
-                  Text(
-                    dateFormat.format(script.createdAt),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey.shade600,
-                        ),
+                  _metaItem(
+                    icon: Icons.access_time,
+                    label: dateFormat.format(script.createdAt),
                   ),
-                  const SizedBox(width: 16),
-                  Icon(Icons.text_fields, size: 16, color: Colors.grey.shade600),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${script.wordCount} words',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey.shade600,
-                        ),
+                  _metaItem(
+                    icon: Icons.text_fields,
+                    label: '${script.wordCount} words',
                   ),
-                  const SizedBox(width: 16),
-                  Icon(Icons.timer, size: 16, color: Colors.grey.shade600),
-                  const SizedBox(width: 4),
-                  Text(
-                    '~${(script.estimatedReadingTime / 60).ceil()} min',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey.shade600,
-                        ),
+                  _metaItem(
+                    icon: Icons.timer,
+                    label: '~${(script.estimatedReadingTime / 60).ceil()} min',
                   ),
                 ],
               ),
@@ -275,6 +276,22 @@ class _ScriptsScreenState extends ConsumerState<ScriptsScreen>
           ),
         ),
       ),
+    );
+  }
+
+  Widget _metaItem({required IconData icon, required String label}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: Colors.grey.shade600),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.grey.shade600,
+              ),
+        ),
+      ],
     );
   }
 }

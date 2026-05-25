@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
 import '../../../shared/models/script.dart';
 
 /// Repository for script operations
@@ -28,7 +29,15 @@ class ScriptRepository {
       notes: notes,
     );
 
-    await scriptRef.set(script.toFirestore());
+    try {
+      await scriptRef
+          .set(script.toFirestore())
+          .timeout(const Duration(seconds: 8));
+    } on TimeoutException {
+      throw Exception('Timed out writing script to Firestore');
+    } on FirebaseException catch (e) {
+      throw Exception('Firestore create failed (${e.code}): ${e.message}');
+    }
     return script;
   }
 
@@ -105,7 +114,17 @@ class ScriptRepository {
     if (tags != null) updates['tags'] = tags;
     if (notes != null) updates['notes'] = notes;
 
-    await _firestore.collection('scripts').doc(scriptId).update(updates);
+    try {
+      await _firestore
+          .collection('scripts')
+          .doc(scriptId)
+          .update(updates)
+          .timeout(const Duration(seconds: 8));
+    } on TimeoutException {
+      throw Exception('Timed out updating script in Firestore');
+    } on FirebaseException catch (e) {
+      throw Exception('Firestore update failed (${e.code}): ${e.message}');
+    }
   }
 
   /// Publish script
