@@ -15,28 +15,7 @@ import UIKit
       channel.setMethodCallHandler { call, result in
         switch call.method {
         case "render":
-          guard let args = call.arguments as? [String: Any],
-                let renderPlan = args["renderPlan"] as? [String: Any],
-                let commandArgs = renderPlan["ffmpegCommand"] as? String,
-                !commandArgs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            result(["success": false, "renderMode": "native_ffmpeg_no_command"])
-            return
-          }
-
-          let task = Process()
-          task.executableURL = URL(fileURLWithPath: "/bin/sh")
-          task.arguments = ["-c", "ffmpeg \(commandArgs)"]
-          do {
-            try task.run()
-            task.waitUntilExit()
-            let ok = task.terminationStatus == 0
-            result([
-              "success": ok,
-              "renderMode": ok ? "native_ffmpeg_render" : "native_ffmpeg_failed"
-            ])
-          } catch {
-            result(["success": false, "renderMode": "native_ffmpeg_unavailable"])
-          }
+          result(["success": false, "renderMode": "native_ffmpeg_unavailable_ios"])
         default:
           result(FlutterMethodNotImplemented)
         }
