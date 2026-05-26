@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../scripts/providers/script_providers.dart';
@@ -109,6 +110,10 @@ class _RecordWithPrompterScreenState
       _error = null;
     });
     try {
+      final hasPermissions = await _ensureCapturePermissions();
+      if (!hasPermissions) {
+        throw Exception('Camera and microphone permissions are required');
+      }
       final repo = ref.read(scriptRepositoryProvider);
       final script = await repo.getScript(widget.scriptId);
       if (script == null) {
@@ -130,9 +135,12 @@ class _RecordWithPrompterScreenState
         _script = script;
         _cameraController = controller;
         if (savedSettings != null) {
-          _fontSize = (savedSettings['fontSize'] as num?)?.toDouble() ?? _fontSize;
-          _scrollSpeed = (savedSettings['scrollSpeed'] as num?)?.toDouble() ?? _scrollSpeed;
-          _readLineY = (savedSettings['readLineY'] as num?)?.toDouble() ?? _readLineY;
+          _fontSize =
+              (savedSettings['fontSize'] as num?)?.toDouble() ?? _fontSize;
+          _scrollSpeed = (savedSettings['scrollSpeed'] as num?)?.toDouble() ??
+              _scrollSpeed;
+          _readLineY =
+              (savedSettings['readLineY'] as num?)?.toDouble() ?? _readLineY;
         }
         _isLoading = false;
       });
@@ -151,6 +159,59 @@ class _RecordWithPrompterScreenState
         _isLoading = false;
       });
     }
+  }
+
+  Future<bool> _ensureCapturePermissions() async {
+    var cameraStatus = await Permission.camera.status;
+    var micStatus = await Permission.microphone.status;
+
+    if (!cameraStatus.isGranted) {
+      cameraStatus = await Permission.camera.request();
+    }
+    if (!micStatus.isGranted) {
+      micStatus = await Permission.microphone.request();
+    }
+
+    final granted = cameraStatus.isGranted && micStatus.isGranted;
+    if (granted || !mounted) return granted;
+
+    final isPermanentlyDenied = cameraStatus.isPermanentlyDenied ||
+        cameraStatus.isRestricted ||
+        micStatus.isPermanentlyDenied ||
+        micStatus.isRestricted;
+
+    if (isPermanentlyDenied) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Permissions Required'),
+          content: const Text(
+            'Camera and microphone access are disabled. Open Settings to enable them.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Not Now'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await openAppSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        ),
+      );
+      return false;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Enable camera and microphone permissions to record'),
+      ),
+    );
+    return false;
   }
 
   Future<void> _runPreflightChecks() async {
@@ -211,13 +272,14 @@ class _RecordWithPrompterScreenState
 
   Future<CameraController> _createController(
     CameraDescription camera,
-    ResolutionPreset preset,
-  ) async {
+    ResolutionPreset preset, {
+    int? fpsOverride,
+  }) async {
     final controller = CameraController(
       camera,
       preset,
       enableAudio: true,
-      fps: _fps,
+      fps: fpsOverride ?? _fps,
     );
     await controller.initialize();
     return controller;
@@ -340,6 +402,8 @@ class _RecordWithPrompterScreenState
   }
 
   Future<void> _toggleRecording() async {
+    final hasPermissions = await _ensureCapturePermissions();
+    if (!hasPermissions) return;
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) return;
     if (_isStoppingRecording) return;
@@ -369,8 +433,7 @@ class _RecordWithPrompterScreenState
           await _startCountdown();
         }
         if (!mounted || _isRecording) return;
-        await controller.prepareForVideoRecording();
-        await controller.startVideoRecording();
+        await _startRecordingWithFallback(controller);
         if (!mounted) return;
         setState(() {
           _isRecording = true;
@@ -386,6 +449,51 @@ class _RecordWithPrompterScreenState
       setState(() => _isStoppingRecording = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Recording error: $e')),
+      );
+    }
+  }
+
+  Future<void> _startRecordingWithFallback(CameraController controller) async {
+    try {
+      try {
+        await controller.prepareForVideoRecording();
+      } catch (_) {
+        // Some device/plugin combos don't require or support this pre-call.
+      }
+      await controller.startVideoRecording();
+      return;
+    } catch (_) {
+      // Retry with a safer capture config for iOS/device compatibility.
+    }
+
+    final fallbackPreset = ResolutionPreset.high;
+    const fallbackFps = 30;
+    final current = _cameraController;
+    if (current == null) {
+      throw Exception('Camera controller unavailable');
+    }
+
+    final replacement = await _createController(
+      current.description,
+      fallbackPreset,
+      fpsOverride: fallbackFps,
+    );
+    await current.dispose();
+    if (!mounted) return;
+    setState(() {
+      _cameraController = replacement;
+      _resolutionPreset = fallbackPreset;
+      _fps = fallbackFps;
+    });
+
+    try {
+      try {
+        await replacement.prepareForVideoRecording();
+      } catch (_) {}
+      await replacement.startVideoRecording();
+    } catch (e) {
+      throw Exception(
+        'Could not start recording on this camera setup. Try 1080p / 30 FPS. Details: $e',
       );
     }
   }
@@ -469,6 +577,32 @@ class _RecordWithPrompterScreenState
           ),
         ),
       );
+      return;
+    }
+
+    // Fallback: if the sheet is dismissed, still provide a clear review action.
+    if (action == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Take saved'),
+          action: SnackBarAction(
+            label: 'Review Take',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => RecordingPlayerScreen(
+                    recording: {
+                      'path': path,
+                      'scriptId': widget.scriptId,
+                      'scriptTitle': _script?.title ?? 'Recording',
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      );
     }
   }
 
@@ -505,10 +639,14 @@ class _RecordWithPrompterScreenState
         continue;
       }
       final max = _scrollController.position.maxScrollExtent;
-      final next = (_scrollController.offset + (_scrollSpeed / 60)).clamp(0.0, max);
+      final next =
+          (_scrollController.offset + (_scrollSpeed / 60)).clamp(0.0, max);
       final loopStart = _loopStartOffset;
       final loopEnd = _loopEndOffset;
-      if (loopStart != null && loopEnd != null && loopEnd > loopStart && next >= loopEnd) {
+      if (loopStart != null &&
+          loopEnd != null &&
+          loopEnd > loopStart &&
+          next >= loopEnd) {
         _scrollController.jumpTo(loopStart.clamp(0.0, max));
         _saveScrollOffset(loopStart);
       } else {
@@ -594,7 +732,9 @@ class _RecordWithPrompterScreenState
       );
     }
     final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized || _script == null) {
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        _script == null) {
       return const Scaffold(body: Center(child: Text('Unavailable')));
     }
 
@@ -605,411 +745,471 @@ class _RecordWithPrompterScreenState
         autofocus: true,
         onKeyEvent: _onHardwareKey,
         child: Stack(
-        children: [
-          Positioned.fill(child: CameraPreview(controller)),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Container(color: Colors.black.withValues(alpha: 0.15)),
-            ),
-          ),
-          Positioned.fill(
-            child: Transform(
-              alignment: Alignment.center,
-              transform: Matrix4.identity()
-                ..scaleByDouble(_mirrorMode ? -1.0 : 1.0, 1.0, 1.0, 1.0),
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTap: () {
-                  if (_touchLocked) return;
-                  if (_isRecording) {
-                    _toggleScroll();
-                  }
-                },
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 32, 16, 170),
-                  child: SingleChildScrollView(
-                    controller: _scrollController,
-                    child: Text(
-                      _script!.content,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: _fontSize,
-                        fontWeight: FontWeight.w600,
-                        height: 1.6,
-                        shadows: const [
-                          Shadow(color: Colors.black87, blurRadius: 8),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: _FocusMask(readLineY: _readLineY),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            top: MediaQuery.of(context).size.height * _readLineY,
-            child: const IgnorePointer(
-              child: Divider(color: Colors.redAccent, thickness: 2),
-            ),
-          ),
-          if (_isRecording)
-            Positioned(
-              top: 12,
-              left: 12,
-              child: _RecordingPill(startedAt: _recordingStartedAt!),
-            ),
-          if (_isCountingDown)
+          children: [
+            Positioned.fill(child: CameraPreview(controller)),
             Positioned.fill(
               child: IgnorePointer(
-                child: Container(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  alignment: Alignment.center,
-                  child: Text(
-                    _countdown.toString(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 96,
-                      fontWeight: FontWeight.w800,
+                child: Container(color: Colors.black.withValues(alpha: 0.15)),
+              ),
+            ),
+            Positioned.fill(
+              child: Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.identity()
+                  ..scaleByDouble(_mirrorMode ? -1.0 : 1.0, 1.0, 1.0, 1.0),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {
+                    if (_touchLocked) return;
+                    if (_isRecording) {
+                      _toggleScroll();
+                    }
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 32, 16, 170),
+                    child: SingleChildScrollView(
+                      controller: _scrollController,
+                      child: Text(
+                        _script!.content,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: _fontSize,
+                          fontWeight: FontWeight.w600,
+                          height: 1.6,
+                          shadows: const [
+                            Shadow(color: Colors.black87, blurRadius: 8),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.65),
-                borderRadius: BorderRadius.circular(12),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _FocusMask(readLineY: _readLineY),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      const Spacer(),
-                      IconButton(
-                        onPressed: () => setState(() => _handsFreeEnabled = !_handsFreeEnabled),
-                        icon: Icon(
-                          _handsFreeEnabled ? Icons.settings_remote : Icons.settings_remote_outlined,
-                          color: Colors.white,
-                        ),
-                        tooltip: _handsFreeEnabled ? 'Hands-free on' : 'Hands-free off',
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              top: MediaQuery.of(context).size.height * _readLineY,
+              child: const IgnorePointer(
+                child: Divider(color: Colors.redAccent, thickness: 2),
+              ),
+            ),
+            if (_isRecording)
+              Positioned(
+                top: 12,
+                left: 12,
+                child: _RecordingPill(startedAt: _recordingStartedAt!),
+              ),
+            if (_isCountingDown)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    alignment: Alignment.center,
+                    child: Text(
+                      _countdown.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 96,
+                        fontWeight: FontWeight.w800,
                       ),
-                      IconButton(
-                        onPressed: _cameras.length > 1 ? _switchCamera : null,
-                        icon: const Icon(Icons.cameraswitch, color: Colors.white),
-                        tooltip: 'Switch camera',
-                      ),
-                      IconButton(
-                        onPressed: () => setState(() => _mirrorMode = !_mirrorMode),
-                        icon: Icon(
-                          _mirrorMode ? Icons.flip : Icons.flip_outlined,
-                          color: Colors.white,
-                        ),
-                        tooltip: _mirrorMode ? 'Mirror on' : 'Mirror off',
-                      ),
-                      IconButton(
-                        onPressed: () async {
-                          final next = !_orientationLocked;
-                          if (next) {
-                            await SystemChrome.setPreferredOrientations(
-                              const [
-                                DeviceOrientation.portraitUp,
-                                DeviceOrientation.landscapeLeft,
-                                DeviceOrientation.landscapeRight,
-                              ],
-                            );
-                          } else {
-                            await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
-                          }
-                          if (!mounted) return;
-                          setState(() => _orientationLocked = next);
-                        },
-                        icon: Icon(
-                          _orientationLocked ? Icons.screen_lock_rotation : Icons.screen_rotation,
-                          color: Colors.white,
-                        ),
-                        tooltip: _orientationLocked ? 'Orientation locked' : 'Lock orientation',
-                      ),
-                      IconButton(
-                        onPressed: () => setState(() => _touchLocked = !_touchLocked),
-                        icon: Icon(
-                          _touchLocked ? Icons.lock : Icons.lock_open,
-                          color: Colors.white,
-                        ),
-                        tooltip: _touchLocked ? 'Touch lock on' : 'Touch lock off',
-                      ),
-                      IconButton(
-                        onPressed: () => setState(
-                          () => _controlsExpanded = !_controlsExpanded,
-                        ),
-                        icon: Icon(
-                          _controlsExpanded
-                              ? Icons.keyboard_arrow_down
-                              : Icons.tune,
-                          color: Colors.white,
-                        ),
-                        tooltip: _controlsExpanded
-                            ? 'Minimize settings'
-                            : 'Show settings',
-                      ),
-                    ],
+                    ),
                   ),
-                  if (_controlsExpanded) ...[
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white10,
-                        borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () => setState(
+                              () => _handsFreeEnabled = !_handsFreeEnabled),
+                          icon: Icon(
+                            _handsFreeEnabled
+                                ? Icons.settings_remote
+                                : Icons.settings_remote_outlined,
+                            color: Colors.white,
+                          ),
+                          tooltip: _handsFreeEnabled
+                              ? 'Hands-free on'
+                              : 'Hands-free off',
+                        ),
+                        IconButton(
+                          onPressed: _cameras.length > 1 ? _switchCamera : null,
+                          icon: const Icon(Icons.cameraswitch,
+                              color: Colors.white),
+                          tooltip: 'Switch camera',
+                        ),
+                        IconButton(
+                          onPressed: () =>
+                              setState(() => _mirrorMode = !_mirrorMode),
+                          icon: Icon(
+                            _mirrorMode ? Icons.flip : Icons.flip_outlined,
+                            color: Colors.white,
+                          ),
+                          tooltip: _mirrorMode ? 'Mirror on' : 'Mirror off',
+                        ),
+                        IconButton(
+                          onPressed: () async {
+                            final next = !_orientationLocked;
+                            if (next) {
+                              await SystemChrome.setPreferredOrientations(
+                                const [
+                                  DeviceOrientation.portraitUp,
+                                  DeviceOrientation.landscapeLeft,
+                                  DeviceOrientation.landscapeRight,
+                                ],
+                              );
+                            } else {
+                              await SystemChrome.setPreferredOrientations(
+                                  DeviceOrientation.values);
+                            }
+                            if (!mounted) return;
+                            setState(() => _orientationLocked = next);
+                          },
+                          icon: Icon(
+                            _orientationLocked
+                                ? Icons.screen_lock_rotation
+                                : Icons.screen_rotation,
+                            color: Colors.white,
+                          ),
+                          tooltip: _orientationLocked
+                              ? 'Orientation locked'
+                              : 'Lock orientation',
+                        ),
+                        IconButton(
+                          onPressed: () =>
+                              setState(() => _touchLocked = !_touchLocked),
+                          icon: Icon(
+                            _touchLocked ? Icons.lock : Icons.lock_open,
+                            color: Colors.white,
+                          ),
+                          tooltip:
+                              _touchLocked ? 'Touch lock on' : 'Touch lock off',
+                        ),
+                        IconButton(
+                          onPressed: () => setState(
+                            () => _controlsExpanded = !_controlsExpanded,
+                          ),
+                          icon: Icon(
+                            _controlsExpanded
+                                ? Icons.keyboard_arrow_down
+                                : Icons.tune,
+                            color: Colors.white,
+                          ),
+                          tooltip: _controlsExpanded
+                              ? 'Minimize settings'
+                              : 'Show settings',
+                        ),
+                      ],
+                    ),
+                    if (_controlsExpanded) ...[
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white10,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Text('Preflight',
+                                    style: TextStyle(color: Colors.white)),
+                                const Spacer(),
+                                TextButton(
+                                  onPressed: _preflightChecking
+                                      ? null
+                                      : _runPreflightChecks,
+                                  child: Text(_preflightChecking
+                                      ? 'Checking...'
+                                      : 'Recheck'),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              'Camera: ${_cameraController != null ? 'Ready' : 'Not ready'}  •  '
+                              'Mic: ${_preflightMicReady ? 'Ready' : 'Check'}  •  '
+                              'Storage: ${_preflightStorageReady ? 'Ready' : 'Check'}',
+                              style: const TextStyle(
+                                  color: Colors.white70, fontSize: 12),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Ambient Audio: ${_ambientSoundLevel.toStringAsFixed(1)}',
+                              style: const TextStyle(
+                                  color: Colors.white70, fontSize: 12),
+                            ),
+                            const SizedBox(height: 4),
+                            LinearProgressIndicator(
+                              value: (_ambientSoundLevel / 100).clamp(0, 1),
+                              minHeight: 6,
+                              backgroundColor: Colors.white24,
+                            ),
+                          ],
+                        ),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      Row(
                         children: [
-                          Row(
-                            children: [
-                              const Text('Preflight', style: TextStyle(color: Colors.white)),
-                              const Spacer(),
-                              TextButton(
-                                onPressed: _preflightChecking ? null : _runPreflightChecks,
-                                child: Text(_preflightChecking ? 'Checking...' : 'Recheck'),
-                              ),
-                            ],
+                          const Text('Font',
+                              style: TextStyle(color: Colors.white)),
+                          Expanded(
+                            child: Slider(
+                              value: _fontSize,
+                              min: 20,
+                              max: 72,
+                              divisions: 26,
+                              onChanged: _setFontSize,
+                            ),
                           ),
                           Text(
-                            'Camera: ${_cameraController != null ? 'Ready' : 'Not ready'}  •  '
-                            'Mic: ${_preflightMicReady ? 'Ready' : 'Check'}  •  '
-                            'Storage: ${_preflightStorageReady ? 'Ready' : 'Check'}',
-                            style: const TextStyle(color: Colors.white70, fontSize: 12),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Ambient Audio: ${_ambientSoundLevel.toStringAsFixed(1)}',
-                            style: const TextStyle(color: Colors.white70, fontSize: 12),
-                          ),
-                          const SizedBox(height: 4),
-                          LinearProgressIndicator(
-                            value: (_ambientSoundLevel / 100).clamp(0, 1),
-                            minHeight: 6,
-                            backgroundColor: Colors.white24,
+                            _fontSize.round().toString(),
+                            style: const TextStyle(color: Colors.white),
                           ),
                         ],
                       ),
-                    ),
-                    Row(
-                      children: [
-                        const Text('Font', style: TextStyle(color: Colors.white)),
-                        Expanded(
-                          child: Slider(
-                            value: _fontSize,
-                            min: 20,
-                            max: 72,
-                            divisions: 26,
-                            onChanged: _setFontSize,
+                      Row(
+                        children: [
+                          const Text('Scroll',
+                              style: TextStyle(color: Colors.white)),
+                          Expanded(
+                            child: Slider(
+                              value: _scrollSpeed,
+                              min: 10,
+                              max: 120,
+                              divisions: 22,
+                              onChanged: _setScrollSpeed,
+                            ),
                           ),
-                        ),
-                        Text(
-                          _fontSize.round().toString(),
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        const Text('Scroll', style: TextStyle(color: Colors.white)),
-                        Expanded(
-                          child: Slider(
-                            value: _scrollSpeed,
-                            min: 10,
-                            max: 120,
-                            divisions: 22,
-                            onChanged: _setScrollSpeed,
+                          Text(
+                            _scrollSpeed.round().toString(),
+                            style: const TextStyle(color: Colors.white),
                           ),
-                        ),
-                        Text(
-                          _scrollSpeed.round().toString(),
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                      ],
-                    ),
-                    Wrap(
-                      spacing: 8,
-                      children: _speedPresets.map((preset) {
-                        final selected = (_scrollSpeed - preset.speed).abs() < 0.01;
-                        return ChoiceChip(
-                          label: Text(preset.label),
-                          selected: selected,
-                          onSelected: (_) => _setScrollSpeed(preset.speed),
-                          selectedColor: Colors.white24,
-                          labelStyle: const TextStyle(color: Colors.white),
-                          backgroundColor: Colors.white12,
-                          side: BorderSide(
-                            color: selected ? Colors.white : Colors.transparent,
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ChoiceChip(
-                          label: const Text('1080p'),
-                          selected: _resolutionPreset == ResolutionPreset.high,
-                          onSelected: (_) => _setResolution(ResolutionPreset.high),
-                          selectedColor: Colors.white24,
-                          labelStyle: const TextStyle(color: Colors.white),
-                          backgroundColor: Colors.white12,
-                        ),
-                        ChoiceChip(
-                          label: const Text('4K'),
-                          selected: _resolutionPreset == ResolutionPreset.veryHigh,
-                          onSelected: (_) => _setResolution(ResolutionPreset.veryHigh),
-                          selectedColor: Colors.white24,
-                          labelStyle: const TextStyle(color: Colors.white),
-                          backgroundColor: Colors.white12,
-                        ),
-                      ],
-                    ),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ChoiceChip(
-                          label: const Text('30 FPS'),
-                          selected: _fps == 30,
-                          onSelected: (_) => _setFps(30),
-                          selectedColor: Colors.white24,
-                          labelStyle: const TextStyle(color: Colors.white),
-                          backgroundColor: Colors.white12,
-                        ),
-                        ChoiceChip(
-                          label: const Text('60 FPS'),
-                          selected: _fps == 60,
-                          onSelected: (_) => _setFps(60),
-                          selectedColor: Colors.white24,
-                          labelStyle: const TextStyle(color: Colors.white),
-                          backgroundColor: Colors.white12,
-                        ),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        const Text('Line', style: TextStyle(color: Colors.white)),
-                        Expanded(
-                          child: Slider(
-                            value: _readLineY,
-                            min: 0.20,
-                            max: 0.70,
-                            divisions: 25,
-                            onChanged: _setReadLineY,
-                          ),
-                        ),
-                        Text(
-                          '${(_readLineY * 100).round()}%',
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        _handsFreeEnabled
-                            ? 'Hands-free: volume keys enabled'
-                            : 'Hands-free: off',
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        OutlinedButton(
-                          onPressed: _setLoopStartAtCurrent,
-                          child: const Text('Set Loop Start'),
-                        ),
-                        OutlinedButton(
-                          onPressed: _setLoopEndAtCurrent,
-                          child: const Text('Set Loop End'),
-                        ),
-                        OutlinedButton(
-                          onPressed: (_loopStartOffset != null || _loopEndOffset != null)
-                              ? _clearLoop
-                              : null,
-                          child: const Text('Clear Loop'),
-                        ),
-                      ],
-                    ),
-                    if (_loopStartOffset != null && _loopEndOffset != null)
+                      Wrap(
+                        spacing: 8,
+                        children: _speedPresets.map((preset) {
+                          final selected =
+                              (_scrollSpeed - preset.speed).abs() < 0.01;
+                          return FilledButton.tonal(
+                            onPressed: () => _setScrollSpeed(preset.speed),
+                            style: FilledButton.styleFrom(
+                              backgroundColor:
+                                  selected ? Colors.white24 : Colors.white12,
+                              foregroundColor: Colors.white,
+                              side: BorderSide(
+                                color: selected
+                                    ? Colors.white70
+                                    : Colors.transparent,
+                              ),
+                            ),
+                            child: Text(preset.label),
+                          );
+                        }).toList(),
+                      ),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('1080p'),
+                            selected:
+                                _resolutionPreset == ResolutionPreset.high,
+                            onSelected: (_) =>
+                                _setResolution(ResolutionPreset.high),
+                            selectedColor: Colors.black54,
+                            labelStyle: const TextStyle(color: Colors.white),
+                            backgroundColor: Colors.black38,
+                            side: BorderSide(
+                              color: _resolutionPreset == ResolutionPreset.high
+                                  ? Colors.white70
+                                  : Colors.transparent,
+                            ),
+                          ),
+                          ChoiceChip(
+                            label: const Text('4K'),
+                            selected:
+                                _resolutionPreset == ResolutionPreset.veryHigh,
+                            onSelected: (_) =>
+                                _setResolution(ResolutionPreset.veryHigh),
+                            selectedColor: Colors.black54,
+                            labelStyle: const TextStyle(color: Colors.white),
+                            backgroundColor: Colors.black38,
+                            side: BorderSide(
+                              color:
+                                  _resolutionPreset == ResolutionPreset.veryHigh
+                                      ? Colors.white70
+                                      : Colors.transparent,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('30 FPS'),
+                            selected: _fps == 30,
+                            onSelected: (_) => _setFps(30),
+                            selectedColor: Colors.black54,
+                            labelStyle: const TextStyle(color: Colors.white),
+                            backgroundColor: Colors.black38,
+                            side: BorderSide(
+                              color: _fps == 30
+                                  ? Colors.white70
+                                  : Colors.transparent,
+                            ),
+                          ),
+                          ChoiceChip(
+                            label: const Text('60 FPS'),
+                            selected: _fps == 60,
+                            onSelected: (_) => _setFps(60),
+                            selectedColor: Colors.black54,
+                            labelStyle: const TextStyle(color: Colors.white),
+                            backgroundColor: Colors.black38,
+                            side: BorderSide(
+                              color: _fps == 60
+                                  ? Colors.white70
+                                  : Colors.transparent,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          const Text('Line',
+                              style: TextStyle(color: Colors.white)),
+                          Expanded(
+                            child: Slider(
+                              value: _readLineY,
+                              min: 0.20,
+                              max: 0.70,
+                              divisions: 25,
+                              onChanged: _setReadLineY,
+                            ),
+                          ),
+                          Text(
+                            '${(_readLineY * 100).round()}%',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
                       Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'Loop section: ${_loopStartOffset!.round()} → ${_loopEndOffset!.round()}',
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                          _handsFreeEnabled
+                              ? 'Hands-free: volume keys enabled'
+                              : 'Hands-free: off',
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 12),
                         ),
                       ),
-                    const SizedBox(height: 8),
-                  ],
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.tonalIcon(
-                        onPressed: () {
-                          _scrollController.jumpTo(0);
-                          _saveScrollOffset(0);
-                          setState(() => _isScrolling = false);
-                        },
-                        icon: const Icon(Icons.first_page),
-                        label: const Text('Top'),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.tonal(
+                            onPressed: _setLoopStartAtCurrent,
+                            child: const Text('Set Loop Start'),
+                          ),
+                          FilledButton.tonal(
+                            onPressed: _setLoopEndAtCurrent,
+                            child: const Text('Set Loop End'),
+                          ),
+                          FilledButton.tonal(
+                            onPressed: (_loopStartOffset != null ||
+                                    _loopEndOffset != null)
+                                ? _clearLoop
+                                : null,
+                            child: const Text('Clear Loop'),
+                          ),
+                        ],
                       ),
-                      FilledButton.icon(
-                        onPressed: _isRecording ? _toggleScroll : null,
-                        icon: Icon(_isScrolling ? Icons.pause : Icons.play_arrow),
-                        label: Text(_isScrolling ? 'Pause' : 'Scroll'),
-                      ),
-                      FilledButton.tonalIcon(
-                        onPressed: _addMarker,
-                        icon: const Icon(Icons.bookmark_add_outlined),
-                        label: const Text('Add Marker'),
-                      ),
-                      FilledButton.tonalIcon(
-                        onPressed: _markers.isEmpty ? null : _jumpToMarker,
-                        icon: const Icon(Icons.bookmarks_outlined),
-                        label: Text('Jump (${_markers.length})'),
-                      ),
-                      FilledButton.icon(
-                        onPressed: _isCountingDown ? null : _toggleRecording,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _isRecording ? Colors.red : null,
+                      if (_loopStartOffset != null && _loopEndOffset != null)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Loop section: ${_loopStartOffset!.round()} → ${_loopEndOffset!.round()}',
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 12),
+                          ),
                         ),
-                        icon: Icon(_isRecording ? Icons.stop : Icons.fiber_manual_record),
-                        label: Text(_isRecording ? 'Stop' : 'Record + Scroll'),
-                      ),
+                      const SizedBox(height: 8),
                     ],
-                  ),
-                ],
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: () {
+                            _scrollController.jumpTo(0);
+                            _saveScrollOffset(0);
+                            setState(() => _isScrolling = false);
+                          },
+                          icon: const Icon(Icons.first_page),
+                          label: const Text('Top'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: _isRecording ? _toggleScroll : null,
+                          icon: Icon(
+                              _isScrolling ? Icons.pause : Icons.play_arrow),
+                          label: Text(_isScrolling ? 'Pause' : 'Scroll'),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: _addMarker,
+                          icon: const Icon(Icons.bookmark_add_outlined),
+                          label: const Text('Add Marker'),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: _markers.isEmpty ? null : _jumpToMarker,
+                          icon: const Icon(Icons.bookmarks_outlined),
+                          label: Text('Jump (${_markers.length})'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: _isCountingDown ? null : _toggleRecording,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _isRecording ? Colors.red : null,
+                          ),
+                          icon: Icon(_isRecording
+                              ? Icons.stop
+                              : Icons.fiber_manual_record),
+                          label:
+                              Text(_isRecording ? 'Stop' : 'Record + Scroll'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
@@ -1079,7 +1279,8 @@ class _RecordingPillState extends State<_RecordingPill> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.fiber_manual_record, color: Colors.white, size: 14),
+              const Icon(Icons.fiber_manual_record,
+                  color: Colors.white, size: 14),
               const SizedBox(width: 6),
               Text(
                 'REC $mm:$ss',

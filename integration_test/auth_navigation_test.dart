@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,24 +14,25 @@ void main() {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   });
+  setUp(() async {
+    await FirebaseAuth.instance.signOut();
+  });
 
   testWidgets('auth flow smoke: login to signup and back', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: MyApp()));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('Team Teleprompter'), findsOneWidget);
     expect(find.text('Sign In'), findsWidgets);
 
     final signUpFinder = find.text('Sign Up').last;
-    await tester.ensureVisible(signUpFinder);
-    await tester.pumpAndSettle();
     await tester.tap(signUpFinder);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
 
     expect(find.widgetWithText(FilledButton, 'Create Account'), findsOneWidget);
 
     await tester.tap(find.text('Sign In'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('Team Teleprompter'), findsOneWidget);
   });

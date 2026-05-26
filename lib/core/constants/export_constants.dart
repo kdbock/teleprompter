@@ -1,5 +1,6 @@
 class ExportConstants {
   // Switch export backend without changing service code.
   // Valid values: OverlayExportService.backendFfmpegKit / backendNative
-  static const String exportBackend = 'native';
+  // Use fallback-stable backend for current TestFlight prep.
+  static const String exportBackend = 'ffmpeg_kit';
 }

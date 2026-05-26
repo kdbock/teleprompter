@@ -224,7 +224,6 @@ class _ScriptDetailScreenState extends ConsumerState<ScriptDetailScreen> {
             // Start prompter button
             FilledButton.icon(
               onPressed: () {
-                // TODO: Navigate to prompter screen
                 context.push('/prompter/${widget.scriptId}');
               },
               icon: const Icon(Icons.play_arrow),
