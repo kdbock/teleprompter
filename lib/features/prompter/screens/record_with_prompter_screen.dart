@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../scripts/providers/script_providers.dart';
 import 'recordings_screen.dart';
@@ -44,15 +43,11 @@ class _RecordWithPrompterScreenState
   bool _preflightChecking = false;
   bool _preflightMicReady = false;
   bool _preflightStorageReady = false;
-  bool _preflightNoiseReady = false;
-  double _ambientSoundLevel = 0;
   DateTime? _recordingStartedAt;
   int _countdown = 0;
   String? _error;
 
   final ScrollController _scrollController = ScrollController();
-  final FocusNode _hardwareKeyFocusNode = FocusNode();
-  final SpeechToText _speechToText = SpeechToText();
   double _fontSize = 40;
   double _scrollSpeed = 45; // pixels / second
   double _readLineY = 0.35; // relative vertical position
@@ -81,27 +76,9 @@ class _RecordWithPrompterScreenState
     if (_orientationLocked) {
       SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     }
-    _hardwareKeyFocusNode.dispose();
     _cameraController?.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  KeyEventResult _onHardwareKey(KeyEvent event) {
-    if (!_handsFreeEnabled || event is! KeyDownEvent) {
-      return KeyEventResult.ignored;
-    }
-    final key = event.logicalKey;
-    final isVolumeKey = key == LogicalKeyboardKey.audioVolumeUp ||
-        key == LogicalKeyboardKey.audioVolumeDown;
-    if (!isVolumeKey) return KeyEventResult.ignored;
-
-    if (_isRecording) {
-      _toggleScroll();
-    } else if (!_isCountingDown && !_isStoppingRecording) {
-      _toggleRecording();
-    }
-    return KeyEventResult.handled;
   }
 
   Future<void> _bootstrap() async {
@@ -218,9 +195,8 @@ class _RecordWithPrompterScreenState
     setState(() => _preflightChecking = true);
     bool micReady = false;
     bool storageReady = false;
-    bool noiseReady = false;
     try {
-      micReady = await _speechToText.initialize();
+      micReady = (await Permission.microphone.status).isGranted;
     } catch (_) {}
     try {
       final tempDir = await getTemporaryDirectory();
@@ -229,33 +205,12 @@ class _RecordWithPrompterScreenState
       await File(probe).delete();
       storageReady = true;
     } catch (_) {}
-    if (micReady) {
-      try {
-        await _speechToText.listen(
-          onResult: (_) {},
-          onSoundLevelChange: (level) {
-            if (!mounted) return;
-            setState(() {
-              _ambientSoundLevel = level.clamp(0, 100).toDouble();
-              _preflightNoiseReady = _ambientSoundLevel > 0;
-            });
-          },
-          listenFor: const Duration(seconds: 3),
-          pauseFor: const Duration(seconds: 1),
-          cancelOnError: true,
-          partialResults: true,
-          listenMode: ListenMode.dictation,
-        );
-        await Future<void>.delayed(const Duration(milliseconds: 1200));
-        await _speechToText.stop();
-        noiseReady = _preflightNoiseReady;
-      } catch (_) {}
-    }
+    // Avoid speech/dictation probing here; on iPad this can interact with
+    // keyboard/input assistant internals and destabilize the recording flow.
     if (!mounted) return;
     setState(() {
       _preflightMicReady = micReady;
       _preflightStorageReady = storageReady;
-      _preflightNoiseReady = noiseReady;
       _preflightChecking = false;
     });
   }
@@ -272,14 +227,12 @@ class _RecordWithPrompterScreenState
 
   Future<CameraController> _createController(
     CameraDescription camera,
-    ResolutionPreset preset, {
-    int? fpsOverride,
-  }) async {
+    ResolutionPreset preset,
+  ) async {
     final controller = CameraController(
       camera,
       preset,
       enableAudio: true,
-      fps: fpsOverride ?? _fps,
     );
     await controller.initialize();
     return controller;
@@ -402,8 +355,6 @@ class _RecordWithPrompterScreenState
   }
 
   Future<void> _toggleRecording() async {
-    final hasPermissions = await _ensureCapturePermissions();
-    if (!hasPermissions) return;
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) return;
     if (_isStoppingRecording) return;
@@ -412,23 +363,34 @@ class _RecordWithPrompterScreenState
         setState(() => _isStoppingRecording = true);
         final file = await controller
             .stopVideoRecording()
-            .timeout(const Duration(seconds: 8));
+            .timeout(const Duration(seconds: 12));
         if (!mounted) return;
         setState(() {
           _isRecording = false;
           _recordingStartedAt = null;
           _isScrolling = false;
-          _isStoppingRecording = false;
         });
         await _recordingService.markRecordingInProgress(
           tempPath: file.path,
           scriptId: widget.scriptId,
           scriptTitle: _script?.title ?? 'Recording',
         );
-        final record = await _finalizeRecording(file.path);
+        String reviewPath = file.path;
+        try {
+          final record = await _finalizeRecording(file.path);
+          reviewPath = record['path'] as String? ?? file.path;
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Take saved for review only: $e')),
+            );
+          }
+        }
         if (!mounted) return;
-        await _showPostTakeOptions(record['path'] as String);
+        await _openReviewScreen(reviewPath).timeout(const Duration(seconds: 6));
       } else {
+        final hasPermissions = await _ensureCapturePermissions();
+        if (!hasPermissions) return;
         if (!_isCountingDown) {
           await _startCountdown();
         }
@@ -446,10 +408,19 @@ class _RecordWithPrompterScreenState
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isStoppingRecording = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Recording error: $e')),
       );
+      // Attempt to recover camera stack after native/plugin stop failures.
+      if (_cameraController != null && !_isRecording) {
+        try {
+          await _restartCameraControllerForRecovery();
+        } catch (_) {}
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isStoppingRecording = false);
+      }
     }
   }
 
@@ -476,7 +447,6 @@ class _RecordWithPrompterScreenState
     final replacement = await _createController(
       current.description,
       fallbackPreset,
-      fpsOverride: fallbackFps,
     );
     await current.dispose();
     if (!mounted) return;
@@ -526,84 +496,31 @@ class _RecordWithPrompterScreenState
     }
   }
 
-  Future<void> _showPostTakeOptions(String path) async {
+  Future<void> _openReviewScreen(String path) async {
     if (!mounted) return;
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Take Complete',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                const Text('What do you want to do next?'),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: () => Navigator.pop(context, 'review'),
-                  icon: const Icon(Icons.play_circle_outline),
-                  label: const Text('Review Take'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.pop(context, 'resume'),
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Resume Prompting'),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RecordingPlayerScreen(
+          recording: {
+            'path': path,
+            'scriptId': widget.scriptId,
+            'scriptTitle': _script?.title ?? 'Recording',
+          },
+        ),
+      ),
     );
+  }
 
+  Future<void> _restartCameraControllerForRecovery() async {
+    final current = _cameraController;
+    if (current == null) return;
+    final replacement = await _createController(
+      current.description,
+      _resolutionPreset,
+    );
+    await current.dispose();
     if (!mounted) return;
-    if (action == 'review') {
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => RecordingPlayerScreen(
-            recording: {
-              'path': path,
-              'scriptId': widget.scriptId,
-              'scriptTitle': _script?.title ?? 'Recording',
-            },
-          ),
-        ),
-      );
-      return;
-    }
-
-    // Fallback: if the sheet is dismissed, still provide a clear review action.
-    if (action == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Take saved'),
-          action: SnackBarAction(
-            label: 'Review Take',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => RecordingPlayerScreen(
-                    recording: {
-                      'path': path,
-                      'scriptId': widget.scriptId,
-                      'scriptTitle': _script?.title ?? 'Recording',
-                    },
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      );
-    }
+    setState(() => _cameraController = replacement);
   }
 
   Future<void> _startCountdown() async {
@@ -740,11 +657,7 @@ class _RecordWithPrompterScreenState
 
     return Scaffold(
       appBar: AppBar(title: Text(_script!.title)),
-      body: KeyboardListener(
-        focusNode: _hardwareKeyFocusNode,
-        autofocus: true,
-        onKeyEvent: _onHardwareKey,
-        child: Stack(
+      body: Stack(
           children: [
             Positioned.fill(child: CameraPreview(controller)),
             Positioned.fill(
@@ -956,17 +869,6 @@ class _RecordWithPrompterScreenState
                                   color: Colors.white70, fontSize: 12),
                             ),
                             const SizedBox(height: 6),
-                            Text(
-                              'Ambient Audio: ${_ambientSoundLevel.toStringAsFixed(1)}',
-                              style: const TextStyle(
-                                  color: Colors.white70, fontSize: 12),
-                            ),
-                            const SizedBox(height: 4),
-                            LinearProgressIndicator(
-                              value: (_ambientSoundLevel / 100).clamp(0, 1),
-                              minHeight: 6,
-                              backgroundColor: Colors.white24,
-                            ),
                           ],
                         ),
                       ),
@@ -1192,15 +1094,29 @@ class _RecordWithPrompterScreenState
                           label: Text('Jump (${_markers.length})'),
                         ),
                         FilledButton.icon(
-                          onPressed: _isCountingDown ? null : _toggleRecording,
+                          onPressed:
+                              (_isCountingDown || _isStoppingRecording)
+                                  ? null
+                                  : _toggleRecording,
                           style: FilledButton.styleFrom(
                             backgroundColor: _isRecording ? Colors.red : null,
                           ),
-                          icon: Icon(_isRecording
-                              ? Icons.stop
-                              : Icons.fiber_manual_record),
-                          label:
-                              Text(_isRecording ? 'Stop' : 'Record + Scroll'),
+                          icon: _isStoppingRecording
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Icon(_isRecording
+                                  ? Icons.stop
+                                  : Icons.fiber_manual_record),
+                          label: Text(
+                            _isStoppingRecording
+                                ? 'Stopping...'
+                                : (_isRecording ? 'Stop' : 'Record + Scroll'),
+                          ),
                         ),
                       ],
                     ),
@@ -1210,7 +1126,6 @@ class _RecordWithPrompterScreenState
             ),
           ],
         ),
-      ),
     );
   }
 }

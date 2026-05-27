@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -183,6 +184,8 @@ class RecordingPlayerScreen extends ConsumerStatefulWidget {
 
 class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
   VideoPlayerController? _controller;
+  String? _initError;
+  bool _isDisposing = false;
   final RecordingService _recordingService = RecordingService();
   final OverlayExportService _overlayExportService = OverlayExportService(
     backend: ExportConstants.exportBackend,
@@ -210,6 +213,7 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
   Duration? _trimStart;
   Duration? _trimEnd;
   bool _isExportingStyledTake = false;
+  bool _isSavingTake = false;
 
   @override
   void initState() {
@@ -218,40 +222,54 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
   }
 
   Future<void> _init() async {
-    final file = File(widget.recording['path'] as String);
-    final controller = VideoPlayerController.file(file);
-    await controller.initialize();
-    controller.addListener(_enforceTrimBounds);
-    if (!mounted) return;
-    final duration = controller.value.duration;
-    final trimStartMs = (widget.recording['trimStartMs'] as num?)?.toInt() ?? 0;
-    final trimEndMs =
-        (widget.recording['trimEndMs'] as num?)?.toInt() ?? duration.inMilliseconds;
-    final safeEndMs = trimEndMs.clamp(0, duration.inMilliseconds);
-    final safeStartMs = trimStartMs.clamp(0, safeEndMs);
-    setState(() {
-      _controller = controller;
-      _trimStart = Duration(milliseconds: safeStartMs);
-      _trimEnd = Duration(milliseconds: safeEndMs);
-      _overlayImagePath = widget.recording['overlayImagePath'] as String?;
-      _overlayImageScale =
-          (widget.recording['overlayImageScale'] as num?)?.toDouble() ?? 1.0;
-      _overlayImageOpacity =
-          (widget.recording['overlayImageOpacity'] as num?)?.toDouble() ?? 0.8;
-      final ox = (widget.recording['overlayImageX'] as num?)?.toDouble();
-      final oy = (widget.recording['overlayImageY'] as num?)?.toDouble();
-      if (ox != null && oy != null) {
-        _overlayImageOffset = Offset(ox, oy);
+    try {
+      final path = widget.recording['path'] as String;
+      final file = File(path);
+      if (!await file.exists()) {
+        throw Exception('Recording file not found at $path');
       }
-    });
-    if (safeStartMs > 0) {
-      await controller.seekTo(Duration(milliseconds: safeStartMs));
+      final controller = VideoPlayerController.file(file);
+      await controller.initialize();
+      controller.addListener(_enforceTrimBounds);
+      if (!mounted) return;
+      final duration = controller.value.duration;
+      final trimStartMs = (widget.recording['trimStartMs'] as num?)?.toInt() ?? 0;
+      final trimEndMs =
+          (widget.recording['trimEndMs'] as num?)?.toInt() ?? duration.inMilliseconds;
+      final safeEndMs = trimEndMs.clamp(0, duration.inMilliseconds);
+      final safeStartMs = trimStartMs.clamp(0, safeEndMs);
+      setState(() {
+        _controller = controller;
+        _trimStart = Duration(milliseconds: safeStartMs);
+        _trimEnd = Duration(milliseconds: safeEndMs);
+        _overlayImagePath = widget.recording['overlayImagePath'] as String?;
+        _overlayImageScale =
+            (widget.recording['overlayImageScale'] as num?)?.toDouble() ?? 1.0;
+        _overlayImageOpacity =
+            (widget.recording['overlayImageOpacity'] as num?)?.toDouble() ?? 0.8;
+        final ox = (widget.recording['overlayImageX'] as num?)?.toDouble();
+        final oy = (widget.recording['overlayImageY'] as num?)?.toDouble();
+        if (ox != null && oy != null) {
+          _overlayImageOffset = Offset(ox, oy);
+        }
+      });
+      if (safeStartMs > 0) {
+        await controller.seekTo(Duration(milliseconds: safeStartMs));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _initError = e.toString());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open recording: $e')),
+      );
     }
   }
 
   @override
   void dispose() {
+    _isDisposing = true;
     _controller?.removeListener(_enforceTrimBounds);
+    unawaited(_controller?.pause());
     _controller?.dispose();
     _lowerThirdController.dispose();
     _captionsController.dispose();
@@ -259,15 +277,28 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
   }
 
   void _enforceTrimBounds() {
+    if (!mounted || _isDisposing) return;
     final controller = _controller;
     final trimEnd = _trimEnd;
     if (controller == null || trimEnd == null) return;
     if (!controller.value.isInitialized) return;
     if (controller.value.position >= trimEnd) {
       controller.pause();
-      controller.seekTo(_trimStart ?? Duration.zero);
+      unawaited(controller.seekTo(_trimStart ?? Duration.zero));
+      if (!mounted || _isDisposing) return;
       setState(() {});
     }
+  }
+
+  Future<void> _handleBack() async {
+    final controller = _controller;
+    if (controller != null) {
+      try {
+        await controller.pause();
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
   }
 
   String _fmt(Duration d) {
@@ -290,6 +321,32 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Trim saved for this take')),
     );
+  }
+
+  Future<void> _saveTakeToRecordings() async {
+    if (_isSavingTake) return;
+    final path = widget.recording['path'] as String?;
+    if (path == null || path.isEmpty) return;
+    setState(() => _isSavingTake = true);
+    try {
+      final saved = await _recordingService.saveRecording(
+        sourcePath: path,
+        scriptId: (widget.recording['scriptId'] as String?) ?? 'unknown',
+        scriptTitle: (widget.recording['scriptTitle'] as String?) ?? 'Recording',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Saved to recordings')),
+      );
+      Navigator.of(context).pop(saved);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save take: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingTake = false);
+    }
   }
 
   Future<void> _pickOverlayImage() async {
@@ -743,9 +800,25 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     return Scaffold(
-      appBar: AppBar(title: const Text('Playback')),
+      appBar: AppBar(
+        title: const Text('Playback'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: _handleBack,
+        ),
+      ),
       body: controller == null
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  _initError == null
+                      ? 'Loading recording...'
+                      : 'Could not load recording.\n$_initError',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
           : SafeArea(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.only(bottom: 24),
@@ -950,6 +1023,20 @@ class _RecordingPlayerScreenState extends ConsumerState<RecordingPlayerScreen> {
                       icon: const Icon(Icons.ios_share_outlined),
                       label: Text(_isExportingStyledTake ? 'Exporting...' : 'Export Styled Take'),
                     ),
+                    if (widget.recording['id'] == null) ...[
+                      const SizedBox(height: 10),
+                      FilledButton.icon(
+                        onPressed: _isSavingTake ? null : _saveTakeToRecordings,
+                        icon: _isSavingTake
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.save_outlined),
+                        label: Text(_isSavingTake ? 'Saving...' : 'Save To Recordings'),
+                      ),
+                    ],
                     if (_lastExportMode != null) ...[
                       const SizedBox(height: 6),
                       Text(

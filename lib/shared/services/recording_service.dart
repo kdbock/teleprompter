@@ -88,18 +88,9 @@ class RecordingService {
       await recordingsDir.create(recursive: true);
     }
 
-    final ext = sourcePath.split('.').last;
+    final ext = sourcePath.contains('.') ? sourcePath.split('.').last : 'mp4';
     final localPath = '${recordingsDir.path}/rec_$id.$ext';
     final localFile = await sourceFile.copy(localPath);
-
-    bool savedToGallery = false;
-    String? galleryError;
-    try {
-      await Gal.putVideo(localFile.path, album: 'Solo Teleprompter');
-      savedToGallery = true;
-    } catch (e) {
-      galleryError = e.toString();
-    }
 
     final record = <String, dynamic>{
       'id': id,
@@ -107,8 +98,8 @@ class RecordingService {
       'scriptTitle': scriptTitle,
       'path': localFile.path,
       'createdAt': DateTime.now().toIso8601String(),
-      'savedToGallery': savedToGallery,
-      'galleryError': galleryError,
+      'savedToGallery': false,
+      'galleryError': null,
       'title': scriptTitle,
       'tags': <String>[],
       'isBestTake': false,
@@ -116,6 +107,22 @@ class RecordingService {
 
     final box = await _getRecordingsBox();
     await box.put(id, record);
+
+    bool savedToGallery = false;
+    String? galleryError;
+    try {
+      await Gal.putVideo(
+        localFile.path,
+        album: 'Solo Teleprompter',
+      ).timeout(const Duration(seconds: 8));
+      savedToGallery = true;
+    } catch (e) {
+      galleryError = e.toString();
+    }
+    record['savedToGallery'] = savedToGallery;
+    record['galleryError'] = galleryError;
+    await box.put(id, record);
+
     if (sourcePath != localFile.path && await sourceFile.exists()) {
       await sourceFile.delete();
     }

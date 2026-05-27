@@ -12,7 +12,7 @@ import '../../features/scripts/screens/script_editor_screen.dart';
 import '../../features/scripts/screens/script_detail_screen.dart';
 import '../../features/prompter/screens/prompter_screen.dart';
 import '../../features/prompter/screens/recordings_screen.dart';
-import '../../features/prompter/screens/record_with_prompter_screen.dart';
+import '../../features/prompter/screens/record_with_prompter_v2_screen.dart';
 
 /// Application routing configuration
 class AppRouter {
@@ -121,7 +121,7 @@ class AppRouter {
         name: 'record-with-prompter',
         builder: (context, state) {
           final id = state.pathParameters['id']!;
-          return RecordWithPrompterScreen(scriptId: id);
+          return RecordWithPrompterV2Screen(scriptId: id);
         },
       ),
 
